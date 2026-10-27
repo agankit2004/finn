@@ -342,26 +342,63 @@ def portfolio():
 
 class HoldingIn(BaseModel):
     symbol: str
-    quantity: float = Field(default=10, ge=0)
+    quantity: float | None = Field(default=None, gt=0)  # number of shares, or…
+    amount: float | None = Field(default=None, gt=0)    # …rupees to invest, converted to whole shares at the last close
+
+
+class QuantityIn(BaseModel):
+    quantity: float = Field(gt=0)
+
+
+def _last_close(s, company_id: int) -> Price | None:
+    return s.execute(select(Price).where(Price.company_id == company_id).order_by(Price.date.desc()).limit(1)).scalar_one_or_none()
 
 
 @app.post("/api/portfolio/holdings")
 def add_holding(body: HoldingIn, bg: BackgroundTasks):
+    if (body.quantity is None) == (body.amount is None):
+        raise HTTPException(422, "Enter either a number of shares or an amount in ₹.")
     try:
         with session_scope() as s:
             c = ingest.get_or_create_company(s, body.symbol)
-            h = s.execute(select(Holding).where(Holding.company_id == c.id)).scalar_one_or_none()
-            if h:
-                h.quantity = body.quantity
-            else:
-                s.add(Holding(company_id=c.id, quantity=body.quantity))
-            sym = c.nse_symbol
+            if s.execute(select(Holding).where(Holding.company_id == c.id)).scalar_one_or_none():
+                raise HTTPException(409, f"{c.nse_symbol} is already in your portfolio. Edit its quantity instead.")
+            sym, cid, name = c.nse_symbol, c.id, c.name
     except (LookupError, ValueError) as e:
         raise HTTPException(404, str(e))
+
+    used_price = None
+    qty = body.quantity
+    if body.amount is not None:
+        with session_scope() as s:
+            p = _last_close(s, cid)
+        if not p and not config.SAMPLE_MODE:
+            ingest.refresh_prices([sym], False)  # first time we see this ticker: fetch prices now
+            with session_scope() as s:
+                p = _last_close(s, cid)
+        if not p:
+            raise HTTPException(409, f"No price for {sym} yet, so FINN can't convert ₹ to shares. Enter the number of shares instead.")
+        qty = float(int(body.amount // p.close))  # whole shares only; the maths is done here, never by a model
+        if qty < 1:
+            raise HTTPException(422, f"₹{body.amount:,.0f} is less than one share of {sym} (₹{p.close:,.2f} at the {p.date:%d %b} close).")
+        used_price = {"close": round(p.close, 2), "date": p.date.isoformat()}
+
+    with session_scope() as s:
+        s.add(Holding(company_id=cid, quantity=qty))
     if not config.SAMPLE_MODE:
         bg.add_task(lambda: (ingest.refresh_prices([sym]), ingest.refresh_announcements(days_back=10, symbols=[sym]),
                              ingest.refresh_news([sym]), ingest.enrich_pending(10)))
-    return {"ok": True, "symbol": sym}
+    return {"ok": True, "symbol": sym, "name": name, "quantity": qty, "price": used_price}
+
+
+@app.patch("/api/portfolio/holdings/{symbol}")
+def update_holding(symbol: str, body: QuantityIn):
+    with session_scope() as s:
+        h = s.execute(select(Holding).join(Company).where(Company.nse_symbol == symbol.upper())).scalar_one_or_none()
+        if not h:
+            raise HTTPException(404, "Not in portfolio")
+        h.quantity = body.quantity
+    return {"ok": True, "symbol": symbol.upper(), "quantity": body.quantity}
 
 
 @app.delete("/api/portfolio/holdings/{symbol}")
