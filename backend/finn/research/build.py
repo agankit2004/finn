@@ -278,11 +278,12 @@ def build(job_id: int, company_id: int, force: bool = False) -> None:
                     doc.period_label = g["call_quarter"]
                 s.execute(delete(GuidanceItem).where(GuidanceItem.document_id == doc_id))
                 for it in g["items"]:
+                    clip = lambda v, n: str(v)[:n] if v is not None else None  # noqa: E731  (model text vs column sizes)
                     s.add(GuidanceItem(company_id=company_id, document_id=doc_id, page=it.get("page"),
-                                       made_in=g.get("call_quarter"), quote=it["quote"][:600],
-                                       metric=it.get("metric") or "other", target_low=it.get("target_low"),
-                                       target_high=it.get("target_high"), unit=it.get("unit"),
-                                       target_period=it.get("target_period"),
+                                       made_in=clip(g.get("call_quarter"), 32), quote=it["quote"][:600],
+                                       metric=clip(it.get("metric") or "other", 32), target_low=it.get("target_low"),
+                                       target_high=it.get("target_high"), unit=clip(it.get("unit"), 16),
+                                       target_period=clip(it.get("target_period"), 16),
                                        assessment=None if it.get("quote_verified") else "quote not found verbatim in transcript"))
         except (SourceError, LlmUnavailable, OSError, ValueError) as e:
             _job_update(job_id, log_line=f"Transcript failed: {str(e)[:140]}")
@@ -376,6 +377,10 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
             sources[gid] = txt
             cite_meta[gid] = {"kind": "guidance", "doc_id": g.document_id, "page": g.page, "snippet": g.quote[:280]}
 
+        # Model calls can take a minute; save and release the DB connection first (a remote database
+        # drops connections that sit idle mid-transaction). The next query checks out a fresh one.
+        s.commit()
+
         # Qualitative guidance: one model call for all of them.
         if qualitative and config.llm_enabled():
             try:
@@ -394,6 +399,7 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
                 if job_id:
                     _job_update(job_id, log_line=f"Qualitative guidance check skipped: {str(e)[:100]}")
 
+        s.commit()
         synth = synth_override or {}
         if synth_override is None and config.llm_enabled() and (chunk_hits or facts):
             src_text = "\n".join(f"{k}: {v}" for k, v in sources.items())
@@ -405,6 +411,8 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
                 if job_id:
                     _job_update(job_id, log_line=f"AI synthesis unavailable: {str(e)[:120]}")
 
+        if isinstance(synth, list):  # the model sometimes wraps the object in a list
+            synth = next((x for x in synth if isinstance(x, dict)), {})
         business = synth.get("business") or {}
         segments = []
         for d in docs:

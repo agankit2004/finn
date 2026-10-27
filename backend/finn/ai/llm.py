@@ -32,6 +32,15 @@ _MIN_INTERVAL = float(os.getenv("FINN_LLM_MIN_INTERVAL", "4.5"))  # free-tier fr
 _lock = threading.Lock()
 _last = 0.0
 _dead_models: set[str] = set()
+_quota_until: dict[str, float] = {}  # model -> time.time() when its daily free quota resets
+
+
+class QuotaExhausted(RuntimeError):
+    """Gemini 429 for the free tier's daily request limit on one model."""
+
+    def __init__(self, retry_seconds: int):
+        super().__init__(f"daily quota used up; resets in {retry_seconds // 3600}h")
+        self.retry_seconds = retry_seconds
 
 
 class ModelBusy(RuntimeError):
@@ -66,7 +75,8 @@ def _parse_json(text: str):
 def _models_for(tier: str) -> list[str]:
     first = config.GEMINI_SMART_MODEL if tier == "smart" else config.GEMINI_FAST_MODEL
     seq = [first] + [m for m in config.GEMINI_FALLBACK_MODELS if m != first]
-    return [m for m in seq if m not in _dead_models] or seq
+    now = time.time()
+    return [m for m in seq if m not in _dead_models and _quota_until.get(m, 0) <= now] or seq
 
 
 def _log_call(purpose: str, model: str, usage: dict, cache_hit: bool, ok: bool = True) -> None:
@@ -93,8 +103,11 @@ def _gemini(model: str, system: str, prompt: str, pdf: bytes | None, temperature
     )
     if r.status_code == 404:
         raise FileNotFoundError(model)
-    if r.status_code == 429:  # rate limit: passes after a pause, so back off and retry
-        raise TimeoutError(r.text[:300])
+    if r.status_code == 429:
+        if "PerDay" in r.text or "per day" in r.text:  # daily free quota used up: skip this model until it resets
+            m = re.search(r'"retryDelay":\s*"(\d+)s"', r.text)
+            raise QuotaExhausted(int(m.group(1)) if m else 6 * 3600)
+        raise TimeoutError(r.text[:300])  # per-minute rate limit: passes after a pause, so back off and retry
     if r.status_code == 503:  # "high demand" on this model: another model is usually free right now
         raise ModelBusy(r.text[:300])
     if r.status_code in (400, 401, 403) and ("API_KEY_INVALID" in r.text or "API key not valid" in r.text
@@ -171,6 +184,10 @@ def generate_json(
                 except FileNotFoundError:
                     _dead_models.add(model)
                     errors.append(f"{model}: not found")
+                    break
+                except QuotaExhausted as e:
+                    _quota_until[model] = time.time() + e.retry_seconds
+                    errors.append(f"{model}: {e}")
                     break
                 except ModelBusy:  # one quick retry, then move on to the next model
                     errors.append(f"{model}: busy")
