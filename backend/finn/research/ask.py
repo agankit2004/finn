@@ -30,8 +30,24 @@ SOURCES:
 _FIN_Q = re.compile(r"revenue|sales|profit|pat|ebitda|margin|growth|trend|financial|earnings|numbers|quarter|year", re.I)
 
 
+_GREETING = re.compile(r"^(hi+|hello|hey|yo|hii+|thanks|thank you|ok|okay|test)[\s!.?]*$", re.I)
+
+
+def _hint(company: Company) -> dict:
+    """Greetings and one-word inputs get a pointer instead of a model call (saves tokens, avoids odd answers)."""
+    return {"answer": [{"text": f"Ask me a question about {company.name}, and I'll answer from its filings, "
+                                "concall transcripts and annual report, with page references.",
+                        "cites": [], "verified": True, "reason": "hint"}],
+            "takeaways": [], "citations": {}, "table": None,
+            "follow_ups": ["How has revenue grown over the last few quarters?",
+                           "What did management guide for this year?",
+                           "What are the key risks in the annual report?"]}
+
+
 def ask(s, company: Company, question: str) -> dict:
     question = question.strip()[:500]
+    if len(question) < 3 or _GREETING.match(question):
+        return _hint(company)
     m = metrics.load(s, company.id)
     facts = metrics.facts_table(m, company.is_financial)
     hits = index.retrieve(s, company.id, question, k=8)

@@ -619,12 +619,11 @@ def company(symbol: str, bg: BackgroundTasks):
     with session_scope() as s:
         c = s.execute(select(Company).where(Company.nse_symbol == sym)).scalar_one_or_none()
         if not c:
+            # Any valid NSE ticker gets a company row, so its prices and key stats can be fetched.
             try:
-                info = universe.resolve(sym)
+                c = ingest.get_or_create_company(s, sym)
             except (LookupError, ValueError) as e:
                 raise HTTPException(404, str(e))
-            return {"symbol": info["symbol"], "name": info["name"], "sector": info.get("sector"), "known": False,
-                    "prices": [], "stats": {}, "in_portfolio": False, "dossier": None, "announcements": []}
         rows = _prices(s, c.id, 520)
         st = alerts_mod.price_stats(rows)
         last250 = rows[-250:]
@@ -693,7 +692,7 @@ def get_research(symbol: str):
 
 
 class AskIn(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
+    question: str = Field(min_length=1, max_length=500)  # short ones like "hi" get a hint, not an error
 
 
 @app.post("/api/research/{symbol}/ask")

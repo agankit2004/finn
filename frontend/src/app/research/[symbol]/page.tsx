@@ -66,7 +66,11 @@ export default function CompanyPage() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [startErr, setStartErr] = useState<string | null>(null);
   const { data: status } = useApi<Status>("/api/status");
-  const { data: co, error: coErr, mutate: mutateCo } = useApi<any>(`/api/companies/${symbol}`);
+  // A first visit triggers a background price fetch; re-check a few times until prices arrive.
+  const pricePolls = useRef(0);
+  const { data: co, error: coErr, mutate: mutateCo } = useApi<any>(`/api/companies/${symbol}`, {
+    refreshInterval: (d: any) => (d && !d.prices?.length && pricePolls.current++ < 5 ? 4000 : 0),
+  });
   const { data: rs, mutate: mutateRs } = useApi<{ status: string; content: any; job: Job | null }>(`/api/research/${symbol}`);
   const activeJob = jobId ?? (rs?.status === "building" ? rs.job?.id : null) ?? null;
   const { data: job } = useApi<Job>(activeJob ? `/api/jobs/${activeJob}` : null, { refreshInterval: 2000 });
