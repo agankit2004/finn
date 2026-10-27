@@ -1,0 +1,28 @@
+# Render blueprint for the FINN backend (free plan). Frontend goes on Vercel.
+# Render's free disk is wiped on restart, so use a Postgres DATABASE_URL (e.g. Neon, free).
+services:
+  - type: web
+    name: finn-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn finn.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FINN_USER_NAME
+        sync: false
+      - key: FINN_CORS_ORIGINS
+        value: "*"
+      - key: FINN_REFRESH_SECRET
+        generateValue: true
+      - key: FINN_RUN_SCHEDULER
+        value: "1"

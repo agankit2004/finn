@@ -1,0 +1,16 @@
+# Keeps the deployed backend fresh (and awake during market hours) by calling its refresh endpoint.
+# Set two repository secrets: FINN_API_URL (e.g. https://finn-api.onrender.com) and FINN_REFRESH_SECRET.
+name: Refresh FINN data
+on:
+  schedule:
+    - cron: "*/30 3-11 * * 1-5"   # every 30 min, 09:00-17:00 IST, Mon-Fri (filings)
+    - cron: "15 13 * * 1-5"       # 18:45 IST, Mon-Fri (end-of-day prices)
+  workflow_dispatch: {}
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger refresh
+        run: |
+          curl -fsS -X POST "${{ secrets.FINN_API_URL }}/api/refresh" \
+            -H "X-Finn-Secret: ${{ secrets.FINN_REFRESH_SECRET }}" --max-time 120
