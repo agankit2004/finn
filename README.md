@@ -15,6 +15,7 @@ A mobile-first web app for investors tracking Indian listed companies. FINN filt
 | **Node.js 20+** | Frontend | nodejs.org (macOS: `brew install node`) |
 | **Gemini API key** (free) | Reading filings, research, Q&A | aistudio.google.com/apikey → *Create API key* |
 | Groq API key (optional, free) | Fallback for text-only AI tasks | console.groq.com/keys |
+| logo.dev key (optional, free) | Company logos; without it, logos come from site icons and many show initials | logo.dev → sign up → copy the **publishable** key (`pk_…`) into `LOGO_DEV_TOKEN` |
 
 Without a Gemini key, prices, filings, news, ranking and alerts still work. Results tables, summaries and research need the key.
 

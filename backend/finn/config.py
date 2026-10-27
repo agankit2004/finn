@@ -49,6 +49,9 @@ GEMINI_FALLBACK_MODELS = [
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+# Optional: company logos from logo.dev. Use the PUBLISHABLE key (pk_...), which is meant to be visible in pages.
+LOGO_DEV_TOKEN = os.getenv("LOGO_DEV_TOKEN", "").strip()
+
 # --- Behaviour ---------------------------------------------------------------
 # Run the background refresh loop inside the API process (good for local use).
 RUN_SCHEDULER = _bool("FINN_RUN_SCHEDULER", True)

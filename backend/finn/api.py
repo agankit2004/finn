@@ -67,11 +67,17 @@ def _prices(s, company_id: int, limit: int = 60) -> list[Price]:
 
 
 def _logo(c: Company) -> str | None:
-    """The company's own site icon, via Google's public favicon service (no key). The UI falls back to initials."""
+    """Logo for the company's website domain. logo.dev when a key is set (clean logos for most companies),
+    else the site's own icon via Google's favicon service. Either way the UI falls back to initials."""
     if not c.website:
         return None
     host = re.sub(r"^https?://", "", c.website).split("/")[0].removeprefix("www.")
-    return f"https://www.google.com/s2/favicons?domain={host}&sz=128" if host else None
+    if not host:
+        return None
+    if config.LOGO_DEV_TOKEN.startswith("pk_"):  # never put a secret (sk_) key into a page
+        # fallback=404: no generated placeholder, so the UI shows initials instead
+        return f"https://img.logo.dev/{host}?token={config.LOGO_DEV_TOKEN}&size=128&format=png&fallback=404"
+    return f"https://www.google.com/s2/favicons?domain={host}&sz=128"
 
 
 def _clean_subject(subj: str) -> str:

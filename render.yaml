@@ -18,6 +18,8 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: LOGO_DEV_TOKEN
+        sync: false
       - key: FINN_USER_NAME
         sync: false
       - key: FINN_CORS_ORIGINS
