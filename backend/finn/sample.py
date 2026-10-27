@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from .db import (Announcement, AnnouncementAnalysis, Chunk, Company, Document, GuidanceItem, Holding, Price,
+from .db import (Announcement, AnnouncementAnalysis, Chunk, Company, Document, GuidanceItem, Holding, NewsItem, Price,
                  get_setting, init_db, session_scope, set_setting, utcnow)
 from .pipeline import alerts
 from .pipeline import financials as fin
@@ -187,6 +187,20 @@ def load() -> None:
             alerts.evaluate_announcement(s, ann, rules)
         for sym in DEMO_PORTFOLIO:
             alerts.evaluate_prices(s, comp[sym], rules, lookback_days=1)
+        for i, (sym, ago, src, title) in enumerate([
+            ("TCS", 0.1, "Sample Wire", "[Sample] TCS shares rise after Q2 numbers; deal wins in focus"),
+            ("TCS", 0.08, "Sample Daily", "[Sample] TCS Q2 results: deal wins in focus as shares rise"),
+            ("RELIANCE", 0.2, "Sample Markets", "[Sample] Reliance trades heavy volumes ahead of AGM commentary"),
+            ("HDFCBANK", 0.3, "Sample Business", "[Sample] HDFC Bank's payments stake: what the 9.5% deal means"),
+            ("DIXON", 0.4, "Sample Wire", "[Sample] Dixon slips nearly 5% as brokerages flag margin pressure"),
+        ]):
+            n = NewsItem(company_id=comp[sym].id, url=f"https://example.com/sample-news/{i}", title=title, source=src,
+                         published_at=utcnow() - timedelta(days=ago))
+            s.add(n)
+            s.flush()
+            n.story_id = n.id
+        first_tcs = s.execute(select(NewsItem).where(NewsItem.url == "https://example.com/sample-news/0")).scalar_one()
+        s.execute(select(NewsItem).where(NewsItem.url == "https://example.com/sample-news/1")).scalar_one().story_id = first_tcs.id
         _sample_research(s, comp["RELIANCE"])
         set_setting(s, "sample_loaded", True)
     from .research.build import compose

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { RangeChart } from "@/components/charts";
 import { FeedRow, FeedSkeleton, RoutineGroup } from "@/components/feed";
+import { NewsPanel } from "@/components/news";
 import { CompanySearch, useUserName } from "@/components/shell";
 import { Chips, Delta, Empty, ErrorBox, Panel, Skeleton, Sparkline } from "@/components/ui";
 import { post, useApi, type Feed, type Portfolio, type Status } from "@/lib/api";
@@ -100,6 +101,12 @@ export default function Home() {
           {pf && <Sparkline data={pf.history.slice(-30).map((h) => h.value)} width={120} height={48} />}
         </Link>
         <div className="mt-4"><Freshness status={status} /></div>
+        {status && !status.sample_mode && !status.llm.enabled && (
+          <Link href="/settings#gemini" className="mt-3 flex items-center justify-between gap-3 rounded-[10px] border border-ink-line bg-ink-2 px-3.5 py-2.5 text-[12.5px] text-ink-muted hover:text-ink-text">
+            <span>Connect Google Gemini so FINN can read results filings, profile new appointees and build research.</span>
+            <span className="shrink-0 font-medium text-ink-text">Connect</span>
+          </Link>
+        )}
       </section>
 
       <div className="grid gap-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -127,6 +134,7 @@ export default function Home() {
           </div>
         </section>
 
+        <div className="flex min-w-0 flex-col gap-5">
         <Panel title="Portfolio" action={<Link href="/portfolio" className="text-[13px] font-medium text-accent hover:underline">View all</Link>} className="hidden h-fit md:block">
           {pfErr ? <ErrorBox error={pfErr} /> : !pf ? <Skeleton className="h-64" /> : (
             <>
@@ -148,6 +156,8 @@ export default function Home() {
             </>
           )}
         </Panel>
+        <NewsPanel />
+        </div>
       </div>
     </div>
   );

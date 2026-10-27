@@ -22,6 +22,7 @@ _MIN_INTERVAL = {  # seconds between requests to the same host
     "www.nseindia.com": 2.0,
     "nsearchives.nseindia.com": 1.0,
     "www.screener.in": 3.0,
+    "news.google.com": 1.5,
 }
 _last_hit: dict[str, float] = {}
 _lock = threading.Lock()

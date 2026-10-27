@@ -16,6 +16,47 @@ function Dot({ status }: { status: string | null }) {
   return <span className={clsx("inline-block size-2 rounded-full", status === "ok" ? "bg-up" : status === "partial" ? "bg-warn" : status ? "bg-down" : "bg-line-strong")} />;
 }
 
+function GeminiPanel({ s, onChange }: { s?: Status; onChange: () => void }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function connect() {
+    setBusy(true); setMsg(null);
+    try { const r = await post("/api/settings/gemini", { gemini_api_key: key }); setMsg({ ok: true, text: r.message }); setKey(""); onChange(); }
+    catch (e: any) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  }
+  async function test() {
+    setBusy(true); setMsg(null);
+    try { const r = await post("/api/settings/gemini/test"); setMsg({ ok: true, text: r.message }); }
+    catch (e: any) { setMsg({ ok: false, text: e.message }); } finally { setBusy(false); }
+  }
+  return (
+    <Panel id="gemini" title="Google Gemini (AI)"
+      action={s && <span className={clsx("text-[12px] font-medium", s.llm.enabled ? "text-up" : "text-warn")}>{s.llm.enabled ? "Connected" : "Not connected"}</span>}>
+      {s?.llm.enabled ? (
+        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+          <p className="flex-1 text-muted">FINN uses <b className="text-text">{s.llm.fast_model}</b> to read filings and <b className="text-text">{s.llm.smart_model}</b> for research and answers.</p>
+          <Button size="sm" variant="outline" onClick={test} loading={busy}>Test connection</Button>
+        </div>
+      ) : (
+        <div className="text-[13px]">
+          <ol className="list-decimal space-y-1 pl-5 text-muted">
+            <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">aistudio.google.com/apikey</a> and sign in with your Google account.</li>
+            <li>Click <b className="text-text">Create API key</b> and copy it (it starts with <span className="num">AIza</span>). The free tier is enough.</li>
+            <li>Paste it here. FINN tests it with Google and saves it to <span className="num">backend/.env</span>.</li>
+          </ol>
+          <form className="mt-3 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); connect(); }}>
+            <input value={key} onChange={(e) => setKey(e.target.value.trim())} type="password" placeholder="Paste your Gemini API key" autoComplete="off"
+              className="num h-10 min-w-0 flex-1 rounded-[var(--radius-sm)] border border-line bg-surface px-3 text-[13px]" aria-label="Gemini API key" />
+            <Button type="submit" loading={busy} disabled={key.length < 20}>Connect</Button>
+          </form>
+        </div>
+      )}
+      {msg && <p className={clsx("mt-3 text-[12.5px]", msg.ok ? "text-up" : "text-down")}>{msg.text}</p>}
+    </Panel>
+  );
+}
+
 export default function Settings() {
   const { data: s, error, mutate } = useApi<Status>("/api/status", { refreshInterval: 15000 });
   const [name, setName] = useState("");
@@ -43,6 +84,7 @@ export default function Settings() {
         </Panel>
 
         {error && <ErrorBox error={error} onRetry={() => mutate()} />}
+        {!s?.sample_mode && <GeminiPanel s={s} onChange={() => mutate()} />}
         <Panel title="Data sources" action={s && !s.sample_mode && (
           <Button size="sm" variant="outline" onClick={async () => { const r = await post("/api/refresh"); setRefresh(r.message ?? "Refresh started"); setTimeout(() => mutate(), 4000); }}>Refresh now</Button>
         )}>
@@ -67,12 +109,20 @@ export default function Settings() {
                 </div>
               </div>
               <div className="flex items-start gap-3">
+                <Dot status={s.runs.news?.status ?? null} />
+                <div className="flex-1">
+                  <p className="font-medium">News headlines: Google News (secondary source)</p>
+                  <p className="text-muted">Last check {ago(s.runs.news?.last_run ?? null)}. Shown on Home and each company's News tab; never used as research evidence.</p>
+                  {s.runs.news?.detail && <p className="mt-0.5 text-[12px] text-faint">{s.runs.news.detail}</p>}
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
                 <Dot status={s.llm.enabled ? "ok" : null} />
                 <div className="flex-1">
                   <p className="font-medium">AI: Google Gemini {s.llm.enabled ? "(connected)" : "(no key)"}</p>
                   <p className="text-muted">{s.llm.enabled
                     ? `Bulk extraction uses ${s.llm.fast_model}; research writing uses ${s.llm.smart_model}.${s.llm.groq ? " Groq is set as a fallback for text tasks." : ""}`
-                    : "Add GEMINI_API_KEY to backend/.env and restart the backend. Prices, filings and alerts work without it."}</p>
+                    : "Connect it in the Google Gemini box above. Prices, filings, news and alerts work without it."}</p>
                 </div>
               </div>
               <p className="text-[12px] text-faint">Backend: {apiBase()}</p>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AskPanel } from "@/components/ask";
+import { NewsPanel } from "@/components/news";
 import { RangeChart } from "@/components/charts";
 import { FeedRow } from "@/components/feed";
 import { Note } from "@/components/item-detail";
@@ -18,6 +19,7 @@ const TABS = [
   { key: "financials", label: "Financials" },
   { key: "guidance", label: "Guidance vs delivered" },
   { key: "announcements", label: "Announcements" },
+  { key: "news", label: "News" },
   { key: "documents", label: "Documents" },
   { key: "ask", label: "Ask FINN" },
 ] as const;
@@ -221,6 +223,8 @@ export default function CompanyPage() {
             </div>
           </div>
         ) : <BuildPanel symbol={symbol} job={job ?? rs?.job} onStart={() => start()} llm={llm} />)}
+
+        {tab === "news" && <NewsPanel symbol={symbol} hours={24 * 14} limit={30} title={`${symbol} in the news`} />}
 
         {tab === "announcements" && (
           <div className="flex flex-col gap-2.5">

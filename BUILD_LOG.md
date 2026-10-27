@@ -17,3 +17,7 @@ A record of the choices made while building FINN with an AI coding agent (Claude
 - **Sample mode:** the build environment could not reach Yahoo, BSE, NSE or Gemini, so the UI was developed against synthetic fixtures. These live in a separate database, every item is marked "[Sample]", and a banner shows on every screen.
 - **Testing:** 30 unit tests cover the maths (signs, units, column selection), classification rules, alert de-duplication, grounding, guidance verdicts, retrieval and the full results-extraction path with the model mocked, plus parsers for the BSE and screener formats.
 - **Design QA:** screenshot passes at 1440 px and 390 px, light and dark. Fixed: results table clipping QoQ/YoY on phones, company header squeezing the price, a sample banner overlapping the sidebar, an overflowing "routine filings" line, and price/volume alerts for the same stock-day showing twice.
+
+## 27 Oct: news + Gemini setup
+- Added real news headlines (Google News RSS, no key) as a clearly separated, secondary layer: Home "In the news" and a per-company News tab. Same story from several publishers is grouped (stemmed word overlap). Relevance uses the names headlines actually use (e.g. "L&T", "HUL") so "Reliance Power" doesn't show up under Reliance Industries. News never enters the research pipeline.
+- Added an in-app "Connect Google Gemini" box: the key is tested against Google before it's saved to backend/.env, invalid keys fail fast, and the endpoint only accepts requests from the local machine or network.

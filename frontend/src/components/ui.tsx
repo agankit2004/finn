@@ -5,11 +5,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { CATEGORY_TAG, pct, toneOf } from "@/lib/format";
 
-export function Panel({ children, className, title, action, pad = true }: {
-  children: ReactNode; className?: string; title?: ReactNode; action?: ReactNode; pad?: boolean;
+export function Panel({ children, className, title, action, pad = true, id }: {
+  children: ReactNode; className?: string; title?: ReactNode; action?: ReactNode; pad?: boolean; id?: string;
 }) {
   return (
-    <section className={clsx("rounded-[var(--radius-lg)] border border-line bg-surface", className)}>
+    <section id={id} className={clsx("rounded-[var(--radius-lg)] border border-line bg-surface", className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 px-4 pt-4 pb-2 sm:px-5">
           {typeof title === "string" ? <h2 className="text-[15px] font-semibold tracking-[-0.01em]">{title}</h2> : title}

@@ -34,6 +34,9 @@ def check() -> None:
     run("BSE announcements", lambda: f"{len(announcements.fetch_bse('500325', end - timedelta(days=7), end))} RELIANCE filings (7d)")
     run("NSE announcements", lambda: f"{len(announcements.fetch_nse('RELIANCE', end - timedelta(days=7), end))} RELIANCE filings (7d)")
     run("screener.in", lambda: (lambda d: f"{len(d['transcripts'])} transcripts, {len(d['annual_reports'])} annual reports")(screener.discover("RELIANCE")))
+    from finn.sources import news
+
+    run("Google News (headlines)", lambda: f"{len(news.fetch('RELIANCE', 'Reliance Industries Ltd'))} RELIANCE headlines (7d)")
     if config.GEMINI_API_KEY:
         from finn.ai.llm import generate_json
 
@@ -44,7 +47,7 @@ def check() -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("what", nargs="?", default="all", choices=["all", "prices", "announcements", "enrich", "research", "check"])
+    p.add_argument("what", nargs="?", default="all", choices=["all", "prices", "announcements", "news", "enrich", "research", "check"])
     p.add_argument("symbol", nargs="?")
     p.add_argument("--days", type=int, default=None)
     a = p.parse_args()
@@ -58,6 +61,8 @@ def main() -> None:
         out = ingest.refresh_prices()
     elif a.what == "announcements":
         out = ingest.refresh_announcements(days_back=a.days)
+    elif a.what == "news":
+        out = ingest.refresh_news()
     elif a.what == "enrich":
         out = ingest.enrich_pending(limit=100)
     elif a.what == "research":

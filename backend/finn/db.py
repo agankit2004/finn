@@ -260,6 +260,20 @@ class IngestionRun(Base):
     detail: Mapped[str | None] = mapped_column(Text)
 
 
+class NewsItem(Base):
+    """A news headline (secondary source). Push side only; never used as research evidence."""
+    __tablename__ = "news_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    url: Mapped[str] = mapped_column(Text, unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(String(120))
+    published_at: Mapped[datetime] = mapped_column(DateTime, index=True)  # UTC
+    story_id: Mapped[int | None] = mapped_column(Integer, index=True)  # first item of the same story
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    company: Mapped[Company] = relationship()
+
+
 class Setting(Base):
     __tablename__ = "settings"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)

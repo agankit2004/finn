@@ -16,9 +16,10 @@ from sqlalchemy import func, select
 from .. import config, universe
 from ..ai import prompts
 from ..ai.llm import LlmUnavailable, generate_json
-from ..db import (Announcement, AnnouncementAnalysis, Company, Holding, IngestionRun, Price, get_setting,
+from ..db import (Announcement, AnnouncementAnalysis, Company, Holding, IngestionRun, NewsItem, Price, get_setting,
                   session_scope, set_setting, utcnow)
 from ..sources import announcements as ann_src
+from ..sources import news as news_src
 from ..sources import prices as price_src
 from ..sources.http import SourceError
 from . import alerts
@@ -279,6 +280,50 @@ def enrich_pending(limit: int | None = None) -> dict:
     return {"processed": len(ids), "enriched": done}
 
 
+def refresh_news(symbols: list[str] | None = None) -> dict:
+    """Headlines from Google News for each holding. Same story from several publishers is grouped."""
+    with session_scope() as s:
+        q = select(Company).join(Holding, Holding.company_id == Company.id)
+        if symbols:
+            q = select(Company).where(Company.nse_symbol.in_(symbols))
+        targets = [(c.id, c.nse_symbol, c.name) for c in s.execute(q).scalars()]
+    run = _start_run("news")
+    new, errors, fails = 0, [], 0
+    for cid, sym, name in targets:
+        try:
+            heads = news_src.fetch(sym, name)
+            fails = 0
+        except SourceError as e:
+            errors.append(f"{sym}: {e}")
+            fails += 1
+            if fails >= 3:
+                errors.append("news source unreachable; stopped this run")
+                break
+            continue
+        with session_scope() as s:
+            since = utcnow() - timedelta(days=10)
+            recent = list(s.execute(select(NewsItem).where(NewsItem.company_id == cid, NewsItem.published_at >= since)).scalars())
+            keys = [(n.story_id or n.id, news_src.title_key(n.title)) for n in recent]
+            for h in sorted(heads, key=lambda x: x.published_utc):
+                if h.published_utc < since:
+                    continue
+                if s.execute(select(NewsItem.id).where(NewsItem.url == h.url)).first():
+                    continue
+                k = news_src.title_key(h.title)
+                story = next((sid for sid, kk in keys if news_src.same_story(k, kk)), None)
+                item = NewsItem(company_id=cid, url=h.url, title=h.title[:500], source=(h.source or "")[:120] or None,
+                                published_at=h.published_utc, story_id=story)
+                s.add(item)
+                s.flush()
+                if story is None:
+                    item.story_id = item.id
+                keys.append((item.story_id, k))
+                new += 1
+    status = "ok" if not errors else ("partial" if new or len(errors) < len(targets) else "failed")
+    _finish_run(run, status, new, "; ".join(errors[:5]))
+    return {"status": status, "new": new, "errors": errors[:5]}
+
+
 def refresh_all(include_prices: bool = True) -> dict:
     if not _run_lock.acquire(blocking=False):
         return {"status": "busy"}
@@ -287,6 +332,7 @@ def refresh_all(include_prices: bool = True) -> dict:
         if include_prices:
             out["prices"] = refresh_prices()
         out["announcements"] = refresh_announcements()
+        out["news"] = refresh_news()
         out["enrich"] = enrich_pending()
         with session_scope() as s:
             set_setting(s, "last_refresh", utcnow().isoformat())

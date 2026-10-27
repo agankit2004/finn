@@ -6,7 +6,9 @@ import re
 import threading
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
+import ipaddress
+
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -14,7 +16,7 @@ from sqlalchemy import func, select
 
 from . import config, universe
 from .db import (AlertEvent, AlertRule, Announcement, AnnouncementAnalysis, Company, Document, Holding, IngestionRun,
-                 Job, LlmCall, Price, ResearchReport, get_setting, init_db, session_scope, set_setting, utcnow)
+                 Job, LlmCall, NewsItem, Price, ResearchReport, get_setting, init_db, session_scope, set_setting, utcnow)
 from .pipeline import alerts as alerts_mod
 from .pipeline import ingest
 from .pipeline.classify import CATEGORIES, LABELS
@@ -158,7 +160,7 @@ def health():
 def status():
     with session_scope() as s:
         runs = {}
-        for src in ("prices", "announcements"):
+        for src in ("prices", "announcements", "news"):
             r = s.execute(select(IngestionRun).where(IngestionRun.source == src).order_by(IngestionRun.started_at.desc()).limit(1)).scalar_one_or_none()
             ok = s.execute(select(IngestionRun).where(IngestionRun.source == src, IngestionRun.status.in_(["ok", "partial"]))
                            .order_by(IngestionRun.started_at.desc()).limit(1)).scalar_one_or_none()
@@ -217,6 +219,68 @@ def refresh(bg: BackgroundTasks, scope: str = "all", x_finn_secret: str | None =
     else:
         bg.add_task(ingest.refresh_all)
     return {"status": "started"}
+
+
+# --- AI key (local setup convenience) -------------------------------------------------------------
+class KeyIn(BaseModel):
+    gemini_api_key: str = Field(min_length=20, max_length=200)
+
+
+def _local_request(request: Request) -> bool:
+    try:
+        ip = ipaddress.ip_address((request.client.host if request.client else "") or "0.0.0.0")
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+def _write_env(key: str, value: str) -> None:
+    env = config.BACKEND_DIR / ".env"
+    lines = env.read_text().splitlines() if env.exists() else []
+    out, done = [], False
+    for ln in lines:
+        if ln.strip().startswith(f"{key}="):
+            out.append(f"{key}={value}")
+            done = True
+        else:
+            out.append(ln)
+    if not done:
+        out.append(f"{key}={value}")
+    env.write_text("\n".join(out) + "\n")
+
+
+@app.post("/api/settings/gemini")
+def set_gemini_key(body: KeyIn, request: Request, x_finn_secret: str | None = Header(default=None)):
+    """Save a Gemini key to backend/.env and test it. Only from this computer / local network
+    (or with the refresh secret), so a deployed instance can't be reconfigured by visitors."""
+    if not (_local_request(request) or (config.REFRESH_SECRET and x_finn_secret == config.REFRESH_SECRET)):
+        raise HTTPException(403, "Set GEMINI_API_KEY in the server's environment instead.")
+    key = body.gemini_api_key.strip()
+    old = config.GEMINI_API_KEY
+    config.GEMINI_API_KEY = key
+    from .ai.llm import LlmUnavailable, generate_json
+
+    try:
+        res = generate_json("check", "Reply with JSON only.", 'Return {"ok": true}', tier="fast", use_cache=False)
+    except LlmUnavailable as e:
+        config.GEMINI_API_KEY = old
+        raise HTTPException(400, f"Google rejected this key or no model answered: {str(e)[:300]}")
+    _write_env("GEMINI_API_KEY", key)
+    return {"ok": bool(res), "message": "Connected. FINN will now read filings and build research.",
+            "fast_model": config.GEMINI_FAST_MODEL, "smart_model": config.GEMINI_SMART_MODEL}
+
+
+@app.post("/api/settings/gemini/test")
+def test_gemini():
+    if not config.llm_enabled():
+        raise HTTPException(409, "No Gemini key set yet.")
+    from .ai.llm import LlmUnavailable, generate_json
+
+    try:
+        generate_json("check", "Reply with JSON only.", 'Return {"ok": true}', tier="fast", use_cache=False)
+    except LlmUnavailable as e:
+        raise HTTPException(400, f"Gemini didn't answer: {str(e)[:300]}")
+    return {"ok": True, "message": "Gemini is working."}
 
 
 # --- portfolio --------------------------------------------------------------------------------------
@@ -281,7 +345,8 @@ def add_holding(body: HoldingIn, bg: BackgroundTasks):
     except (LookupError, ValueError) as e:
         raise HTTPException(404, str(e))
     if not config.SAMPLE_MODE:
-        bg.add_task(lambda: (ingest.refresh_prices([sym]), ingest.refresh_announcements(days_back=10, symbols=[sym]), ingest.enrich_pending(10)))
+        bg.add_task(lambda: (ingest.refresh_prices([sym]), ingest.refresh_announcements(days_back=10, symbols=[sym]),
+                             ingest.refresh_news([sym]), ingest.enrich_pending(10)))
     return {"ok": True, "symbol": sym}
 
 
@@ -346,6 +411,35 @@ def feed(hours: int = Query(24, ge=1, le=24 * 90), category: str = "all", symbol
         return {"window": {"since": iso(since), "until": iso(until), "hours": hours}, "items": material,
                 "routine": routine, "counts": counts, "total": len(items),
                 "high_importance": sum(1 for i in material if i["importance"] >= 70)}
+
+
+@app.get("/api/news")
+def news(hours: int = Query(48, ge=1, le=24 * 30), symbol: str | None = None, limit: int = Query(30, ge=1, le=200)):
+    """Headlines grouped by story. Secondary source: shown for awareness, never used in research."""
+    since = utcnow() - timedelta(hours=hours)
+    with session_scope() as s:
+        q = select(NewsItem).where(NewsItem.published_at >= since).order_by(NewsItem.published_at.desc())
+        if symbol:
+            q = q.join(Company).where(Company.nse_symbol == symbol.upper())
+        else:
+            held = {r[0] for r in s.execute(select(Holding.company_id))}
+            q = q.where(NewsItem.company_id.in_(held))
+        rows = list(s.execute(q).scalars())
+        stories: dict[int, dict] = {}
+        for n in sorted(rows, key=lambda x: x.published_at):  # earliest item leads its story
+            sid = n.story_id or n.id
+            st = stories.get(sid)
+            if st is None:
+                stories[sid] = {"id": sid, "title": n.title, "url": n.url, "source": n.source, "time": iso(n.published_at),
+                                "latest": iso(n.published_at),
+                                "company": {"symbol": n.company.nse_symbol, "name": n.company.name}, "also": []}
+            else:
+                st["also"].append({"source": n.source, "url": n.url})
+                st["latest"] = iso(n.published_at)
+        out = sorted(stories.values(), key=lambda x: x["latest"], reverse=True)
+        last = s.execute(select(IngestionRun).where(IngestionRun.source == "news").order_by(IngestionRun.started_at.desc()).limit(1)).scalar_one_or_none()
+        return {"stories": out[:limit], "total": len(out), "checked": iso(last.finished_at) if last else None,
+                "status": last.status if last else None, "sample": config.SAMPLE_MODE}
 
 
 @app.get("/api/announcements/{ann_id}")

@@ -59,3 +59,26 @@ def test_screener_parsing(monkeypatch):
     assert len(out["annual_reports"]) == 1 and out["annual_reports"][0]["year"] == 2026
     assert [t["url"].rsplit("/", 1)[1] for t in out["transcripts"]] == ["t1.pdf", "t0.pdf"]
     assert out["transcripts"][0]["date"].month == 10
+
+
+NEWS_RSS = """<?xml version="1.0"?><rss><channel>
+<item><title>Infosys shares jump after Q2 beat - Sample Times</title><link>https://news.example/a</link>
+ <guid>a</guid><pubDate>Mon, 26 Oct 2026 10:30:00 GMT</pubDate><source url="https://st.example">Sample Times</source></item>
+<item><title>Infosys Q2 beat sends shares jumping - Daily Sample</title><link>https://news.example/b</link>
+ <guid>b</guid><pubDate>Mon, 26 Oct 2026 11:00:00 GMT</pubDate><source url="https://ds.example">Daily Sample</source></item>
+<item><title>Global tech stocks slide on rates - Wire</title><link>https://news.example/c</link>
+ <guid>c</guid><pubDate>Mon, 26 Oct 2026 12:00:00 GMT</pubDate><source url="https://w.example">Wire</source></item>
+</channel></rss>"""
+
+
+def test_news_parsing_relevance_and_grouping():
+    from finn.sources import news
+
+    items = news.parse(NEWS_RSS)
+    assert items[0].title == "Infosys shares jump after Q2 beat" and items[0].source == "Sample Times"
+    assert items[0].published_utc.hour == 10
+    rel = [h for h in items if news.relevant(h, "INFY", "Infosys Ltd")]
+    assert len(rel) == 2  # the generic tech headline is dropped
+    assert news.same_story(news.title_key(rel[0].title), news.title_key(rel[1].title))
+    assert news.short_name("Dixon Technologies (India) Ltd") == "Dixon Technologies"
+    assert news.short_name("Larsen & Toubro Ltd") == "Larsen & Toubro"

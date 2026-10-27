@@ -16,7 +16,16 @@ A mobile-first web app for investors tracking Indian listed companies. FINN filt
 | **Gemini API key** (free) | Reading filings, research, Q&A | aistudio.google.com/apikey → *Create API key* |
 | Groq API key (optional, free) | Fallback for text-only AI tasks | console.groq.com/keys |
 
-Without a Gemini key, prices, filings, ranking and alerts still work. Results tables, summaries and research need the key.
+Without a Gemini key, prices, filings, news, ranking and alerts still work. Results tables, summaries and research need the key.
+
+### Connecting Google Gemini
+1. Go to **aistudio.google.com/apikey**, sign in with a Google account, click **Create API key**, and copy it (starts with `AIza`). No billing needed for the free tier.
+2. Either:
+   - **In the app:** Settings → *Google Gemini* → paste → **Connect**. FINN tests the key with Google and saves it to `backend/.env` (works from your own computer or Wi-Fi only), or
+   - **By hand:** put `GEMINI_API_KEY=AIza...` in `backend/.env` and restart `./start.sh`.
+3. Check: `./start.sh check` shows **OK  Gemini API**, and Settings shows *Connected*.
+
+FINN calls Gemini's REST API directly (`generativelanguage.googleapis.com`). The model names default to Google's `gemini-flash-lite-latest` (bulk reading) and `gemini-flash-latest` (research). If Google renames them, set `GEMINI_FAST_MODEL` / `GEMINI_SMART_MODEL` in `.env`; FINN also falls back to `gemini-2.5-flash` automatically.
 
 ## 2. Install and run (about 3 minutes)
 
@@ -47,7 +56,7 @@ Keep the laptop and phone on the same Wi-Fi network. `start.sh` prints a link li
 
 ## 3. How to check it works
 
-1. `./start.sh check` should show **OK** for Yahoo and BSE (NSE and screener are fallbacks; OK is a bonus).
+1. `./start.sh check` should show **OK** for Yahoo, BSE, Google News and Gemini (NSE and screener are fallbacks; OK is a bonus).
 2. **Home:** the hero shows portfolio value with an end-of-day date. *Top updates* lists ranked filings, with "N routine filings hidden" at the bottom.
 3. Tap a **Results** item: a table of Revenue, EBITDA, PBT and PAT with QoQ/YoY and the page it came from. *Open filing* opens the exchange PDF.
 4. **Alerts:** change "Price move" to 1% and save. New price alerts appear for any holding that moved more than 1% in recent sessions.
@@ -60,6 +69,7 @@ Useful commands (run inside `backend/` with the venv active):
 ```bash
 python -m scripts.refresh                    # one full refresh now
 python -m scripts.refresh announcements --days 30
+python -m scripts.refresh news
 python -m scripts.refresh research TCS       # build a dossier from the terminal, with progress
 ```
 
@@ -95,6 +105,7 @@ python -m scripts.refresh research TCS       # build a dossier from the terminal
 - **Prices:** Yahoo Finance via `yfinance` (`RELIANCE.NS`). **End-of-day only**, labelled as such everywhere. If Yahoo fails, FINN tries NSE's official daily bhavcopy file. Stored prices keep working through an outage, and a "stale" flag appears if the latest session is missing.
 - **Announcements:** BSE's corporate-filings JSON (the endpoint behind bseindia.com), with NSE as fallback. **Neither is an official API.** They can change or block requests, and NSE often blocks cloud servers. FINN makes one request per company per poll, every 30 minutes, with backoff, and stores everything. Each filing is processed once (unique exchange id + PDF hash).
 - **Fundamentals:** results filings, concall transcripts and annual reports, discovered from the company's BSE filings (SEBI requires transcripts and annual reports to be filed). screener.in is used only to find links when filings are missing; screener's own numbers are never used as evidence.
+- **News headlines:** Google News RSS per company (free, no key), searched with the names headlines actually use (L&T, HUL, Airtel…), filtered to headlines that name the company, and grouped when several publishers cover the same story. FINN stores only the headline, publisher, time and link. News appears on Home and each company's *News* tab, and is **never used as research evidence** (the brief requires primary sources for analysis).
 - **Management background** comes from the profile companies must include in the appointment filing. FINN does not scrape LinkedIn (its terms forbid it); it offers a LinkedIn search link instead.
 
 ### AI design: cheap, cached, checked

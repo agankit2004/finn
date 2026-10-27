@@ -91,6 +91,9 @@ def _gemini(model: str, system: str, prompt: str, pdf: bytes | None, temperature
         raise FileNotFoundError(model)
     if r.status_code == 429:
         raise TimeoutError(r.text[:300])
+    if r.status_code in (400, 401, 403) and ("API_KEY_INVALID" in r.text or "API key not valid" in r.text
+                                             or "PERMISSION_DENIED" in r.text):
+        raise KeyError("Gemini API key is invalid or not allowed to use this API")
     if r.status_code >= 400:
         raise LlmUnavailable(f"Gemini {r.status_code}: {r.text[:300]}")
     data = r.json()
@@ -156,6 +159,9 @@ def generate_json(
                     result = _parse_json(text)
                     _log_call(purpose, model, usage, cache_hit=False)
                     break
+                except KeyError as e:  # bad key: no point trying other models
+                    _log_call(purpose, model, {}, cache_hit=False, ok=False)
+                    raise LlmUnavailable(str(e).strip("'")) from e
                 except FileNotFoundError:
                     _dead_models.add(model)
                     errors.append(f"{model}: not found")
