@@ -110,6 +110,30 @@ def _spark(rows: list[Price], n: int = 30) -> list[float]:
     return [round(r.close, 2) for r in rows[-n:]]
 
 
+_PRICE_SOURCES = {
+    "yahoo": ("Yahoo Finance", "End-of-day price and volume", "https://finance.yahoo.com/quote/{sym}.NS/history/"),
+    "nse_bhavcopy": ("NSE bhavcopy", "NSE's official end-of-day price file", "https://www.nseindia.com/all-reports"),
+}
+
+
+_SAMPLE_SOURCE = {"name": "Sample data", "kind": "Synthetic, for demo only: not a real price or filing", "url": None, "label": None}
+
+
+def _price_source(sym: str, source: str | None) -> dict:
+    if source == "sample" or config.SAMPLE_MODE:
+        return _SAMPLE_SOURCE
+    name, kind, url = _PRICE_SOURCES.get(source or "yahoo", _PRICE_SOURCES["yahoo"])
+    return {"name": name, "kind": kind, "url": url.format(sym=sym), "label": f"{sym} price history on {name}"}
+
+
+def _ann_source(ann: Announcement) -> dict:
+    if ann.exchange == "SAMPLE":
+        return _SAMPLE_SOURCE
+    exch = {"BSE": "BSE (Bombay Stock Exchange)", "NSE": "NSE (National Stock Exchange)"}.get(ann.exchange, ann.exchange)
+    return {"name": exch, "kind": "Company filing to the stock exchange (primary source)",
+            "url": ann.attachment_url, "label": "Original filing on the exchange website" if ann.attachment_url else None}
+
+
 def _ann_item(s, ann: Announcement, price_cache: dict) -> dict:
     a = ann.analysis
     cid = ann.company_id
@@ -127,7 +151,7 @@ def _ann_item(s, ann: Announcement, price_cache: dict) -> dict:
         "structured": a.structured if a else None, "enrich_status": a.enrich_status if a else None,
         "enrich_error": a.enrich_error if a else None,
         "time": iso(ann.filed_at), "exchange": ann.exchange, "has_file": bool(ann.attachment_url),
-        "source_url": ann.attachment_url,
+        "source_url": ann.attachment_url, "source": _ann_source(ann),
         "company": {"symbol": ann.company.nse_symbol, "name": ann.company.name},
         "price": {**{k: pc["stats"].get(k) for k in ("close", "change_pct", "date")}, "spark": pc["spark"]},
         "sample": ann.exchange == "SAMPLE",
@@ -136,9 +160,10 @@ def _ann_item(s, ann: Announcement, price_cache: dict) -> dict:
 
 def _alert_item(s, ev: AlertEvent, price_cache: dict) -> dict:
     cid = ev.company_id
-    if cid not in price_cache:
+    if cid not in price_cache or "sources" not in price_cache[cid]:
         rows = _prices(s, cid, 40)
-        price_cache[cid] = {"stats": alerts_mod.price_stats(rows), "spark": _spark(rows)}
+        price_cache[cid] = {"stats": alerts_mod.price_stats(rows), "spark": _spark(rows),
+                            "sources": {r.date.isoformat(): r.source for r in rows}}  # which feed each day came from
     ob = ev.observed or {}
     mag = abs(ob.get("change_pct") or 0) if ev.kind == "price" else (ob.get("volume_mult") or 0)
     imp = min(95, 55 + mag * (4 if ev.kind == "price" else 8))
@@ -148,6 +173,7 @@ def _alert_item(s, ev: AlertEvent, price_cache: dict) -> dict:
         "routine": False, "title": ev.title,
         "summary": _alert_summary(ev.kind, ob),
         "structured": {"kind": ev.kind, **ob}, "time": iso(ev.occurred_at), "exchange": "EOD",
+        "source": _price_source(ev.company.nse_symbol, price_cache[cid]["sources"].get(ob.get("date") or "")),
         "company": {"symbol": ev.company.nse_symbol, "name": ev.company.name},
         "price": {**{k: price_cache[cid]["stats"].get(k) for k in ("close", "change_pct", "date")}, "spark": price_cache[cid]["spark"]},
         "seen": ev.seen, "sample": ev.company.source == "sample",

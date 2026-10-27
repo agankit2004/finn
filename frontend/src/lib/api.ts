@@ -72,6 +72,7 @@ export type FeedItem = {
   importance: number; reasons: string[]; routine: boolean; title: string; subject?: string; summary?: string | null;
   structured?: any; enrich_status?: string | null; enrich_error?: string | null; time: string | null;
   exchange: string; has_file?: boolean; source_url?: string | null;
+  source?: { name: string; kind: string; url: string | null; label: string | null };
   company: { symbol: string; name: string };
   price: { close?: number | null; change_pct?: number | null; date?: string | null; spark: number[] };
   sample?: boolean; seen?: boolean; alert_kind?: string;

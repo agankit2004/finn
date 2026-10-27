@@ -44,3 +44,21 @@ def test_amount_below_one_share_is_rejected(monkeypatch):
         s.add(Price(company_id=c.id, date=date(2026, 10, 27), close=50000.0, volume=1))
     r = TestClient(api.app).post("/api/portfolio/holdings", json={"symbol": "PFBIG", "amount": 1000})
     assert r.status_code == 422 and "less than one share" in r.json()["detail"]
+
+
+def test_price_alert_names_its_source():
+    from datetime import datetime, timedelta
+
+    from finn.db import AlertEvent
+    day = (datetime.utcnow() - timedelta(days=1)).date()  # alerts list shows the last 14 days
+    with session_scope() as s:
+        c = Company(nse_symbol="SRCTEST", name="Source Test Ltd")
+        s.add(c)
+        s.flush()
+        s.add(Holding(company_id=c.id, quantity=1))  # alerts are shown for holdings only
+        s.add(Price(company_id=c.id, date=day, close=100.0, volume=1, source="yahoo"))
+        s.add(AlertEvent(kind="price", company_id=c.id, trigger_key=day.isoformat(), occurred_at=datetime.combine(day, datetime.min.time()),
+                         observed={"date": day.isoformat(), "close": 100.0, "change_pct": 5.0, "threshold": 4.0}, title="SRCTEST up 5%"))
+    items = TestClient(api.app).get("/api/alerts").json()["items"]
+    src = next(i for i in items if i["company"]["symbol"] == "SRCTEST")["source"]
+    assert src["name"] == "Yahoo Finance" and src["url"] == "https://finance.yahoo.com/quote/SRCTEST.NS/history/"

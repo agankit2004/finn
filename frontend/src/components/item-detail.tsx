@@ -235,17 +235,25 @@ export function ItemDetail({ item: initial, onNavigate }: { item: FeedItem; onNa
         )}
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2 border-t border-line pt-4">
+      {item.source && (
+        <div className="mt-6 rounded-[var(--radius-sm)] border border-line bg-surface-2/50 px-3 py-2.5">
+          <p className="text-[11.5px] font-medium text-faint">Source</p>
+          <p className="mt-0.5 text-[13px] font-medium">{item.source.name}</p>
+          <p className="text-[12px] text-muted">{item.source.kind}</p>
+          {item.source.url && (
+            <a href={item.source.url} target="_blank" rel="noreferrer"
+              className="mt-1.5 inline-flex max-w-full items-center gap-1 text-[12.5px] font-medium text-accent hover:underline">
+              <span className="truncate">{item.source.label ?? "Open original"}</span> <ExternalLink className="size-3 shrink-0" />
+            </a>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
         {item.announcement_id && item.has_file && (
           <Button href={undefined} variant="outline" onClick={() => window.open(annFileUrl(item.announcement_id!), "_blank")}>
             <FileText className="size-3.5" /> Open filing
           </Button>
-        )}
-        {item.source_url && (
-          <a href={item.source_url} target="_blank" rel="noreferrer"
-            className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-sm)] px-3 text-[13px] text-muted hover:bg-surface-2 hover:text-text">
-            Original on {item.exchange} <ExternalLink className="size-3" />
-          </a>
         )}
         <Button href={`/research/${item.company.symbol}`} variant="ghost" className="ml-auto" onClick={onNavigate}>
           <Microscope className="size-3.5" /> Research {item.company.symbol}
