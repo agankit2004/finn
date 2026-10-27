@@ -56,7 +56,10 @@ export default function Home() {
 
   const counts = allFeed?.counts ?? {};
   const totalMaterial = allFeed?.items.length ?? 0;
-  const companiesWithNews = new Set((allFeed?.items ?? []).filter((i) => i.importance >= 60).map((i) => i.company.symbol)).size;
+  // The digest mixes exchange filings with price/volume alerts; the Announcements tile counts filings only.
+  const filings = (allFeed?.items ?? []).filter((i) => i.type === "announcement");
+  const filingsHigh = filings.filter((i) => i.importance >= 70).length;
+  const companiesWithNews = new Set(filings.filter((i) => i.importance >= 60).map((i) => i.company.symbol)).size;
   const chips = FILTERS.filter((f) => f.key === "all" || counts[f.key]).map((f) => ({ ...f, count: f.key === "all" ? totalMaterial : counts[f.key] }));
   const movers = (pf?.movers ?? []).map((s) => pf!.holdings.find((h) => h.symbol === s)!).filter(Boolean).slice(0, 5);
   const dayTone = (pf?.day_change_pct ?? 0) >= 0 ? "up" : "down";
@@ -87,10 +90,10 @@ export default function Home() {
         <div className="mt-6 hidden grid-cols-2 gap-3 md:grid xl:grid-cols-4">
           <HeroTile href="/portfolio" label="Portfolio value" value={pf ? inr(pf.total_value) : "—"}
             sub={pf ? <><Delta value={pf.day_change_pct} digits={2} className={dayTone === "up" ? "text-up" : "text-down"} /> on the day ({inr(Math.abs(pf.day_change_abs))})</> : "Loading…"} />
-          <HeroTile href="/portfolio" label="Companies" value={pf?.holdings.length ?? "—"} sub={`${companiesWithNews} with major news`} />
-          <HeroTile href="/announcements" label="Announcements, 24h" value={totalMaterial}
-            sub={`${allFeed?.high_importance ?? 0} high importance, ${allFeed?.routine.length ?? 0} routine hidden`} />
-          <HeroTile href="/alerts" label="Alerts" value={alerts?.today ?? 0} sub={`${alerts?.unseen ?? 0} unseen in the last 3 days`} />
+          <HeroTile href="/portfolio" label="Companies" value={pf?.holdings.length ?? "—"} sub={`${companiesWithNews} with important filings today`} />
+          <HeroTile href="/announcements" label="Announcements, 24h" value={allFeed ? filings.length : "—"}
+            sub={`${filingsHigh} high importance, ${allFeed?.routine.length ?? 0} routine hidden`} />
+          <HeroTile href="/alerts" label="Alerts today" value={alerts ? alerts.today : "—"} sub={`${alerts?.unseen ?? 0} unseen in the last 3 days`} />
         </div>
         <Link href="/portfolio" className="mt-5 flex items-center justify-between rounded-[14px] border border-ink-line bg-ink-2 px-4 py-3.5 md:hidden">
           <div>
