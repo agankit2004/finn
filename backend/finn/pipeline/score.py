@@ -13,10 +13,12 @@ BASE: dict[tuple[str, str | None], int] = {
     ("results", "results_filing"): 90,
     ("results", "results_presentation"): 55,
     ("results", "results_intimation"): 35,
+    ("results", "board_outcome"): 60,  # often the results themselves; FINN reads the PDF to check
     ("results", "results_ad"): 8,
     ("M&A", None): 82,
     ("management_change", "top"): 84,
     ("management_change", "other"): 48,
+    ("management_change", None): 58,  # not yet read: shown, not hidden as routine
     ("fund_raise", None): 74,
     ("litigation", None): 68,
     ("credit_rating", "downgrade"): 80,

@@ -52,6 +52,20 @@ def make_client(**kw) -> httpx.Client:
     return httpx.Client(headers=headers, timeout=kw.pop("timeout", 30), follow_redirects=True, **kw)
 
 
+def redirect_target(client: httpx.Client, url: str) -> str | None:
+    """Where a link redirects to, without downloading the target (e.g. a PDF)."""
+    _wait_turn(urlparse(url).netloc)
+    try:
+        r = client.get(url, follow_redirects=False)
+    except httpx.HTTPError as e:
+        raise SourceError(f"GET {url} failed: {e}") from e
+    if r.status_code in (301, 302, 303, 307, 308):
+        return r.headers.get("location")
+    if r.status_code in (401, 403, 429):
+        raise SourceError(f"{urlparse(url).netloc} refused the request ({r.status_code})")
+    return None
+
+
 def get(client: httpx.Client, url: str, *, params=None, headers=None, retries: int = 3) -> httpx.Response:
     host = urlparse(url).netloc
     last_exc: Exception | None = None

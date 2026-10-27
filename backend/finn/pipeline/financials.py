@@ -89,6 +89,28 @@ def headline(p: dict, is_financial: bool) -> dict:
     return out
 
 
+def reconcile(p: dict) -> str | None:
+    """Catch a misread revenue figure using the statement's own arithmetic (done here, never by the model).
+
+    revenue + other income must equal total income. If it doesn't, but total income is confirmed by
+    total income − total expenses = PBT, revenue is recomputed as total income − other income.
+    Otherwise revenue is dropped (shown as n/a) rather than shown wrong. Returns a note, or None."""
+    rev, oi, ti = p.get("revenue_from_operations"), p.get("other_income"), p.get("total_income")
+    if None in (rev, oi, ti) or p.get("interest_earned") is not None:
+        return None
+    tol = max(2.0, 0.005 * abs(ti))
+    if abs(rev + oi - ti) <= tol:
+        return None
+    te, pbt, exc = p.get("total_expenses"), p.get("pbt"), p.get("exceptional_items") or 0.0
+    when = p.get("period_end") or "one period"
+    if te is not None and pbt is not None and min(abs(ti - te - pbt), abs(ti - te + exc - pbt)) <= tol:
+        p["revenue_from_operations"] = round(ti - oi, 2)
+        return (f"revenue for {when} recomputed as total income − other income ({ti - oi:,.0f}); "
+                f"the figure read from the filing ({rev:,.0f}) didn't add up")
+    p["revenue_from_operations"] = None
+    return f"revenue for {when} didn't add up with other income and total income, so it isn't shown"
+
+
 def checks(p: dict) -> list[str]:
     """Sanity checks on extracted numbers. Any failure shows a 'verify' badge in the UI."""
     issues = []

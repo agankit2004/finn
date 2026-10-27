@@ -4,7 +4,8 @@ import tempfile
 
 os.environ.setdefault("FINN_DATA_DIR", tempfile.mkdtemp(prefix="finn-test-"))
 
-from datetime import date  # noqa: E402
+from datetime import date, datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import httpx  # noqa: E402
 
@@ -37,28 +38,37 @@ def test_bse_parsing(monkeypatch):
     assert items[1].attachment_url is None
 
 
-SCREENER_HTML = """
-<section id="documents"><div class="documents">
- <div><h3>Annual reports</h3><ul>
-   <li><a href="https://www.bseindia.com/bseplus/AnnualReport/532540/ar2026.pdf">Financial Year 2026<div>from bse</div></a></li>
- </ul></div>
- <div><h3>Concalls</h3><ul>
-   <li><div>Oct 2026</div><a class="concall-link" href="https://www.bseindia.com/xml-data/corpfiling/AttachLive/t1.pdf">Transcript</a>
-       <a href="https://example.com/ppt.pdf">PPT</a></li>
-   <li><div>Jul 2026</div><a class="concall-link" href="https://www.bseindia.com/xml-data/corpfiling/AttachLive/t0.pdf">Transcript</a></li>
- </ul></div>
-</div></section>"""
+SCREENER_HTML = (Path(__file__).parent / "fixtures" / "screener_tcs.html").read_text()  # real page, trimmed
 
 
-def test_screener_parsing(monkeypatch):
+def test_screener_parsing_real_page(monkeypatch):
     def fake_get(client, url, params=None, headers=None, retries=3):
         return httpx.Response(200, text=SCREENER_HTML, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(screener, "get", fake_get)
     out = screener.discover("TCS")
-    assert len(out["annual_reports"]) == 1 and out["annual_reports"][0]["year"] == 2026
-    assert [t["url"].rsplit("/", 1)[1] for t in out["transcripts"]] == ["t1.pdf", "t0.pdf"]
-    assert out["transcripts"][0]["date"].month == 10
+    # 5 latest filings: the filing's own title (screener's summary dropped), exact time, BSE document
+    assert len(out["recent"]) == 5
+    first = out["recent"][0]
+    assert first["title"] == "Press Release - TCS Bancs For Treasury Marks Its Entry Into Sri Lanka With Indian Bank"
+    assert first["filed_at_utc"] == datetime(2026, 10, 19, 6, 0, 41)  # 11:30:41 IST
+    assert first["url"].startswith("https://www.bseindia.com/") and first["url"].endswith(".pdf")
+    # transcripts: one per call month, newest first
+    titles = [t["title"] for t in out["transcripts"]]
+    assert titles[0] == "Concall transcript Oct 2026" and len(titles) == len(set(titles))
+    # per-quarter links to results filings, newest quarter first
+    assert out["quarters"][0]["period_end"] == date(2026, 9, 30)
+    assert out["annual_reports"][0]["year"] == 2026
+
+
+def test_screener_fallback_becomes_bse_filings(monkeypatch):
+    monkeypatch.setattr(screener, "page", lambda symbol: SCREENER_HTML)
+    for src in ("BSE", "NSE"):  # both exchange APIs paused, as when they block us
+        monkeypatch.setitem(ann_src._breaker, src, {"fails": 3, "until": float("inf")})
+    monkeypatch.setitem(ann_src._breaker, "SCREENER", {"fails": 0, "until": 0.0})
+    items, used = ann_src.fetch_company("TCS", "532540", date(2026, 10, 1), date(2026, 10, 27))
+    assert used == "BSE via screener.in" and len(items) == 5
+    assert all(i.exchange == "BSE" and i.source_id.startswith("pdf:") and i.raw == {"via": "screener"} for i in items)
 
 
 NEWS_RSS = """<?xml version="1.0"?><rss><channel>

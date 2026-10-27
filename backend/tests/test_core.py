@@ -92,6 +92,14 @@ def test_consistency_check_flags_bad_pat():
     ("Disclosure under Regulation 29 of SAST", "insider_trading", None),
     ("Creation of pledge on promoter shares", "pledging", None),
     ("Buyback of equity shares", "fund_raise", None),
+    # real BSE subjects seen on 27 Oct 2026 (via screener.in)
+    ("Outcome Of Board Meeting Of Larsen & Toubro Limited Held On October 27, 2026", "results", "board_outcome"),
+    ("Board Meeting Outcome for Un-Audited Financial Results For The Quarter Ended 30th September 2026", "results", "results_filing"),
+    ("Announcement under Regulation 30 (LODR) - Bagging/receiving of order(s)/contract(s)", "press_release", "order_win"),
+    ("Initial Public Offer Of Jio Platforms Limited - Update", "fund_raise", None),
+    ("Intimation of Repayment of Commercial Paper (CP)", "unclassified", "debt_servicing"),
+    ("Analyst Presentation - Q2 / H1 FY27", "results", "results_presentation"),
+    ("Announcement under Regulation 30 (LODR)-Earnings Call Transcript", "earnings_call", "transcript"),
 ])
 def test_rules(subject, cat, sub):
     c = classify_rule(subject)
@@ -234,3 +242,16 @@ def test_extract_results_end_to_end(monkeypatch, tmp_path):
     assert card["page"] is not None and card["page"] >= 1  # mapped back to the original PDF
     assert card["segments"][0]["share_pct"] == 72.7
     assert card["checks"] == []
+
+
+def test_misread_revenue_is_recomputed_or_dropped():
+    # Infosys Q1 FY27 as read from a scanned filing: employee cost (25,287) taken as revenue.
+    q1 = {"revenue_from_operations": 25287.0, "other_income": 984.0, "total_income": 49195.0,
+          "total_expenses": 38167.0, "pbt": 11028.0, "period_end": "2026-06-30"}
+    note = fin.reconcile(q1)
+    assert q1["revenue_from_operations"] == 48211.0 and "recomputed" in note  # confirmed by 49,195 − 38,167 = 11,028
+    bad = {"revenue_from_operations": 25287.0, "other_income": 984.0, "total_income": 49195.0,
+           "total_expenses": 30000.0, "pbt": 11028.0, "period_end": "2026-06-30"}
+    assert "isn't shown" in fin.reconcile(bad) and bad["revenue_from_operations"] is None
+    ok = {"revenue_from_operations": 49244.0, "other_income": 848.0, "total_income": 50092.0}
+    assert fin.reconcile(ok) is None and ok["revenue_from_operations"] == 49244.0

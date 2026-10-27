@@ -139,9 +139,18 @@ def _discover(job_id: int, company: Company) -> dict:
                 found["presentation"].append(item)
     if errors:
         _job_update(job_id, log_line=f"Exchange filings partly unavailable: {errors[0][:160]}")
-    if len(found["transcript"]) < 2 or not found["annual_report"]:
+    if len(found["transcript"]) < 2 or not found["annual_report"] or len(found["results"]) < 2:
         try:
             sc = screener.discover(company.nse_symbol)
+            if len(found["results"]) < 2 and sc["quarters"]:
+                # Each quarter on screener links to that quarter's results filing on BSE (the primary document).
+                got = screener.results_filing_urls(sc["quarters"], MAX_RESULTS)
+                have = {d["url"] for d in found["results"]}
+                for r in got:
+                    if r["url"] not in have:
+                        found["results"].append({"title": r["title"], "url": r["url"], "filed_at": r["filed_at"],
+                                                 "via": "screener"})
+                _job_update(job_id, log_line=f"Results filings via screener.in quarter links: {len(got)} (documents on BSE)")
             have = {d["url"] for d in found["transcript"]}
             for t in sc["transcripts"]:
                 if t["url"] not in have:

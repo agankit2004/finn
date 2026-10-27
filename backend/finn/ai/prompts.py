@@ -8,8 +8,10 @@ GROUNDING = (
 )
 
 RESULTS_PROMPT = """This excerpt of a quarterly/annual results filing contains {n} pages, numbered 1..{n}.
-Extract the financial results table. Prefer the CONSOLIDATED statement; use standalone only if no
-consolidated statement is present.
+Extract the financial results table. Prefer the CONSOLIDATED profit-and-loss statement; if these pages
+have no consolidated P&L table (even if a consolidated balance sheet or cash flow is present), extract the
+STANDALONE P&L and set basis to "standalone". is_financial_results is true whenever any quarterly
+profit-and-loss statement (consolidated or standalone) is present.
 
 Return JSON:
 {{

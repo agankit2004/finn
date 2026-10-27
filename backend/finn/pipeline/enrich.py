@@ -32,6 +32,8 @@ _TABLE_HINTS = re.compile(
 _BS_HINTS = re.compile(r"statement of assets and liabilities|balance sheet|total equity", re.I)
 _CF_HINTS = re.compile(r"cash flow|operating activities", re.I)
 _CONSOL = re.compile(r"consolidated", re.I)
+# Results-statement titles survive poor scans only roughly ("Statcmcnt of Consolidstcd ... Rcsulls"), so match loosely.
+_STATEMENT_TITLE = re.compile(r"st.t.?m.nt of .{0,60}(r.sul|rcsul)", re.I)
 
 
 def _select_result_pages(texts: list[str], limit: int = 8) -> list[int]:
@@ -43,6 +45,10 @@ def _select_result_pages(texts: list[str], limit: int = 8) -> list[int]:
         s = 0
         if _TABLE_HINTS.search(t):
             s += 3 + len(_TABLE_HINTS.findall(t))
+        if _STATEMENT_TITLE.search(t):
+            s += 5
+            if re.search(r"consolid", t, re.I):
+                s += 2
         if _BS_HINTS.search(t):
             s += 2
         if _CF_HINTS.search(t):
@@ -72,7 +78,7 @@ def extract_results(path, is_financial: bool) -> dict:
     subset = pdfs.subset_pdf(path, pages)
     raw = generate_json(
         "results_extract", prompts.GROUNDING, prompts.RESULTS_PROMPT.format(n=len(pages)),
-        tier="fast", pdf=subset, version="results-v2",
+        tier="fast", pdf=subset, version="results-v3",
     )
     if not raw.get("is_financial_results"):
         return {"kind": "not_results"}
@@ -83,11 +89,16 @@ def extract_results(path, is_financial: bool) -> dict:
     is_fin = is_financial or raw.get("entity_type") in {"bank", "nbfc", "insurance"}
 
     periods = [_norm_period(p, factor) for p in raw.get("periods") or []]
+    notes = {}
     for p in periods:
         p["page"] = page_map(p.get("page"))
+        note = fin.reconcile(p)  # may fix or drop a misread revenue figure
+        if note:
+            notes[id(p)] = note
     cols = fin.pick_columns(periods)
     if not cols:
         return {"kind": "results", "error": "No quarterly column found", "periods": periods}
+    col_notes = [notes[id(cols[k])] for k in ("current", "previous", "year_ago") if cols.get(k) is not None and id(cols[k]) in notes]
 
     heads = {k: (fin.headline(cols[k], is_fin) if cols.get(k) else None) for k in ("current", "previous", "year_ago")}
     metric_rows = []
@@ -136,7 +147,7 @@ def extract_results(path, is_financial: bool) -> dict:
             "pat_margin": heads["current"]["pat_margin"],
         },
         "ebitda_method": heads["current"]["ebitda_method"],
-        "checks": fin.checks(cols["current"]),
+        "checks": fin.checks(cols["current"]) + col_notes,
         "page": cols["current"].get("page"),
         "segments": segments,
         "balance_sheet": bs,

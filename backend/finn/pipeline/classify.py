@@ -45,6 +45,8 @@ RULES: list[tuple[re.Pattern, str, str | None]] = [
     (_rx(r"\b(esop|esos|esps|employee stock|stock option)"), "unclassified", "esop"),
     (_rx(r"scrutini[sz]er"), "agm_egm", None),
     (_rx(r"\biepf\b|unclaimed dividend|tds on dividend|deduction of tax"), "unclassified", "compliance"),
+    (_rx(r"(repayment|redemption) of .{0,40}(commercial paper|\bcps?\b|debentures?|\bncds?\b|bonds?)|"
+         r"payment of (interest|coupon)|record date for (payment of )?(interest|redemption)"), "unclassified", "debt_servicing"),
     (_rx(r"regulation 74\s*\(5\)|74\(5\)|loss of share cert|duplicate share|issue of duplicate"), "unclassified", "compliance"),
     (_rx(r"shareholding pattern|investor complaint|reconciliation of share capital|compliance cert|"
          r"certificate under|corporate governance report|statement of deviation|change in (registrar|rta)|"
@@ -58,7 +60,7 @@ RULES: list[tuple[re.Pattern, str, str | None]] = [
      "earnings_call", "recording"),
     (_rx(r"(earnings|conference|investor|analyst)[\s/-]*calls?\b|con[- ]?call"), "earnings_call", "call_notice"),
     # --- results ---------------------------------------------------------------------------
-    (_rx(r"(investor|earnings|results) presentation|press release.*results|results press release"),
+    (_rx(r"(investor|earnings|results|analyst) presentation|press release.*results|results press release"),
      "results", "results_presentation"),
     (_rx(r"outcome of (the )?board meeting.*(result|financial)"), "results", "results_filing"),
     (_rx(r"(intimation|notice) of (the )?board meeting|board meeting intimation|prior intimation|"
@@ -66,6 +68,8 @@ RULES: list[tuple[re.Pattern, str, str | None]] = [
      "results", "results_intimation"),
     (_rx(r"financial results|\bresults for the (quarter|half|period|year)|(un)?audited (standalone|consolidated)?\s*"
          r"(financial )?results|quarterly results|q[1-4]\s*(fy)?\s*'?\d{2}.*results"), "results", "results_filing"),
+    # board meeting outcome that doesn't mention results (in results season it often is): FINN reads it to check
+    (_rx(r"outcome of (the )?board meeting|board meeting outcome"), "results", "board_outcome"),
     # --- corporate events -------------------------------------------------------------------
     (_rx(r"pledg|encumbrance|invocation of"), "pledging", None),
     (_rx(r"credit rating|\bratings?\b.*(reaffirm|upgrade|downgrade|assign|revis)|"
@@ -74,7 +78,8 @@ RULES: list[tuple[re.Pattern, str, str | None]] = [
      "insider_trading", None),
     (_rx(r"buy[- ]?back|\bqip\b|qualified institution|rights issue|preferential (issue|allotment)|"
          r"commercial paper|non[- ]?convertible debenture|\bncds?\b|issue of (bonds|debentures)|"
-         r"fund[- ]?rais|raising of funds|issue of warrants"), "fund_raise", None),
+         r"fund[- ]?rais|raising of funds|issue of warrants|initial public offer|\bipo\b|offer for sale|"
+         r"\bdrhp\b|red herring"), "fund_raise", None),
     (_rx(r"acqui|merger|amalgamation|de-?merger|joint venture|\bjv\b|scheme of arrangement|"
          r"divest|disinvest|slump sale|sale of (stake|shares|business|undertaking)|stake in|"
          r"incorporation of (a |an )?(new )?(wholly[- ]owned |step[- ]down )?subsidiar|investment in .*subsidiar"),
@@ -96,7 +101,7 @@ RULES: list[tuple[re.Pattern, str, str | None]] = [
          r"one[- ]on[- ]one|roadshow|non[- ]deal|schedule of (analyst|investor)|meeting with (analyst|investor|fund)"),
      "investor_meetings", None),
     (_rx(r"annual report"), "unclassified", "annual_report"),
-    (_rx(r"order (win|received|inflow)|receipt of (an )?order|award of (order|contract)|bags?\b|secures?\b|"
+    (_rx(r"order (win|received|inflow)|receipt of (an )?orders?|bagging|receiving of orders?|award of (order|contract)|bags?\b|secures?\b|"
          r"\bwins?\b.*(order|contract)|letter of (award|intent)"), "press_release", "order_win"),
     (_rx(r"clarification|rumou?r|news item|media report"), "press_release", "clarification"),
     (_rx(r"press release|media release|launch|partnership|collaborat|\bmou\b|agreement|tie[- ]up"),

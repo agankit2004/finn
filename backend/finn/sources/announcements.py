@@ -142,9 +142,25 @@ def fetch_nse(symbol: str, start: date, end: date) -> list[RawAnnouncement]:
     return out
 
 
+def fetch_via_screener(symbol: str) -> list[RawAnnouncement]:
+    """Fallback: the company's latest BSE filings as listed on its screener.in page.
+
+    Only the filing's own title, exact filing time and BSE document link are used, so the item is
+    the same primary BSE filing the API would have returned (minus BSE's category fields)."""
+    from . import screener
+
+    out = []
+    for r in screener.parse(screener.page(symbol))["recent"]:
+        fname = r["url"].rsplit("=", 1)[-1].rsplit("/", 1)[-1]  # BSE's attachment file name, e.g. <guid>.pdf
+        out.append(RawAnnouncement(exchange="BSE", source_id=f"pdf:{fname}", filed_at_utc=r["filed_at_utc"],
+                                   subject=r["title"], headline=None, category=None, subcategory=None,
+                                   attachment_url=r["url"], raw={"via": "screener"}))
+    return out
+
+
 # Circuit breaker: after 3 consecutive failures a source is skipped for 10 minutes, so a blocked
 # exchange costs a few seconds per run instead of retries for every company.
-_breaker: dict[str, dict] = {"BSE": {"fails": 0, "until": 0.0}, "NSE": {"fails": 0, "until": 0.0}}
+_breaker: dict[str, dict] = {s: {"fails": 0, "until": 0.0} for s in ("BSE", "NSE", "SCREENER")}
 
 
 def _open(src: str) -> bool:
@@ -167,7 +183,8 @@ def _record(src: str, ok: bool) -> None:
 
 
 def fetch_company(symbol: str, bse_code: str | None, start: date, end: date) -> tuple[list[RawAnnouncement], str]:
-    """Try BSE, then NSE. Returns (items, source_used). Raises SourceError if both fail."""
+    """Try BSE, then NSE, then BSE filings listed on screener.in. Returns (items, source_used).
+    Raises SourceError if all fail."""
     errors = []
     if bse_code and not _open("BSE"):
         try:
@@ -190,4 +207,14 @@ def fetch_company(symbol: str, bse_code: str | None, start: date, end: date) -> 
             errors.append(f"NSE: {e}")
     else:
         errors.append("NSE: paused after repeated failures")
+    if not _open("SCREENER"):
+        try:
+            out = fetch_via_screener(symbol)
+            _record("SCREENER", True)
+            return out, "BSE via screener.in"
+        except SourceError as e:
+            _record("SCREENER", False)
+            errors.append(f"screener.in: {e}")
+    else:
+        errors.append("screener.in: paused after repeated failures")
     raise SourceError("; ".join(errors))

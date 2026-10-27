@@ -208,6 +208,11 @@ def store_announcements(s, company: Company, raws: list[ann_src.RawAnnouncement]
                                                          Announcement.source_id == r.source_id)).first()
         if exists:
             continue
+        if r.attachment_url:  # same BSE document found another way (API vs screener link): same file name
+            fname = r.attachment_url.rsplit("=", 1)[-1].rsplit("/", 1)[-1]
+            if len(fname) > 8 and s.execute(select(Announcement.id).where(
+                    Announcement.company_id == company.id, Announcement.attachment_url.like(f"%{fname}"))).first():
+                continue
         if r.exchange == "NSE":  # avoid duplicating a filing we already have from BSE
             dup = s.execute(select(Announcement.id).where(
                 Announcement.company_id == company.id, Announcement.exchange == "BSE",

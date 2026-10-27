@@ -130,7 +130,9 @@ def _ann_source(ann: Announcement) -> dict:
     if ann.exchange == "SAMPLE":
         return _SAMPLE_SOURCE
     exch = {"BSE": "BSE (Bombay Stock Exchange)", "NSE": "NSE (National Stock Exchange)"}.get(ann.exchange, ann.exchange)
-    return {"name": exch, "kind": "Company filing to the stock exchange (primary source)",
+    via = " Found through the company's screener.in page; the document is the original on BSE." \
+        if (ann.raw or {}).get("via") == "screener" else ""
+    return {"name": exch, "kind": "Company filing to the stock exchange (primary source)." + via,
             "url": ann.attachment_url, "label": "Original filing on the exchange website" if ann.attachment_url else None}
 
 
