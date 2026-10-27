@@ -5,6 +5,7 @@ services:
     name: finn-api
     runtime: python
     plan: free
+    region: singapore  # same region as the Neon database (AWS ap-southeast-1); closest to India
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn finn.api:app --host 0.0.0.0 --port $PORT

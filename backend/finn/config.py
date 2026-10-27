@@ -28,7 +28,7 @@ SAMPLE_MODE = _bool("FINN_SAMPLE_MODE", False)
 
 # SQLite by default (zero setup). Set DATABASE_URL=postgresql+psycopg://... for deployment.
 DATABASE_URL = (f"sqlite:///{DATA_DIR / 'finn_sample.db'}" if SAMPLE_MODE
-                else os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'finn.db'}"))
+                else os.getenv("DATABASE_URL", "").strip() or f"sqlite:///{DATA_DIR / 'finn.db'}")  # empty = unset
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
