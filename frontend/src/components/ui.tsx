@@ -2,7 +2,7 @@
 import clsx from "clsx";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CATEGORY_TAG, pct, toneOf } from "@/lib/format";
 
 export function Panel({ children, className, title, action, pad = true, id }: {
@@ -74,6 +74,26 @@ export function Signal({ score, className }: { score: number; className?: string
         <span key={i} className={clsx("w-[3px] rounded-[1px]", i < level ? (level >= 3 ? "bg-accent" : "bg-muted") : "bg-line-strong")}
           style={{ height: 5 + i * 3 }} />
       ))}
+    </span>
+  );
+}
+
+/** Company logo (its own site icon) on a white tile; falls back to the ticker's first two letters. */
+export function CompanyLogo({ symbol, logo, className }: { symbol: string; logo?: string | null; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (logo && !failed) {
+    return (
+      <span className={clsx("grid shrink-0 place-items-center overflow-hidden rounded-[10px] bg-white p-1.5", className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logo} alt="" className="size-full object-contain" referrerPolicy="no-referrer"
+          // Google serves a tiny generic globe when a site has no icon: treat that as "no logo".
+          onLoad={(e) => e.currentTarget.naturalWidth <= 16 && setFailed(true)} onError={() => setFailed(true)} />
+      </span>
+    );
+  }
+  return (
+    <span className={clsx("grid shrink-0 place-items-center rounded-[10px] bg-ink font-semibold text-ink-text", className)}>
+      {symbol.slice(0, 2)}
     </span>
   );
 }

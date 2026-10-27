@@ -72,6 +72,7 @@ def fetch_key_stats(symbol: str) -> dict:
         "pe": info.get("trailingPE"),
         "dividend_yield": dy,
         "industry": info.get("industry"),
+        "website": info.get("website"),
     }
 
 

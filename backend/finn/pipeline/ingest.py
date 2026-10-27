@@ -143,13 +143,20 @@ def refresh_prices(symbols: list[str] | None = None, with_stats: bool = True) ->
     return {"status": status, "new": new, "alerts": fired, "missing": missing}
 
 
+def refresh_stats(symbols: list[str]) -> None:
+    """Key stats (and website, for the logo) only, without re-downloading prices."""
+    with session_scope() as s:
+        targets = [(c.id, c.nse_symbol) for c in s.execute(select(Company).where(Company.nse_symbol.in_(symbols))).scalars()]
+    _refresh_stats(targets)
+
+
 def _refresh_stats(targets) -> None:
     today = utcnow().date()
     fails = 0
     for cid, sym in targets:
         with session_scope() as s:
             c = s.get(Company, cid)
-            if c.stats_updated_at and c.stats_updated_at.date() == today:
+            if c.stats_updated_at and c.stats_updated_at.date() == today and c.website is not None:
                 continue
         try:
             st = price_src.fetch_key_stats(sym)
@@ -165,6 +172,7 @@ def _refresh_stats(targets) -> None:
             c.market_cap_cr, c.pe, c.dividend_yield = st["market_cap_cr"], st["pe"], st["dividend_yield"]
             if not c.sector and st.get("industry"):
                 c.sector = st["industry"]
+            c.website = st.get("website") or ""  # "" = Yahoo has none; don't ask again today
             c.stats_updated_at = utcnow()
 
 

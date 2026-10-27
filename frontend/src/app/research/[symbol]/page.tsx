@@ -10,7 +10,7 @@ import { RangeChart } from "@/components/charts";
 import { FeedRow } from "@/components/feed";
 import { Note } from "@/components/item-detail";
 import { BullBear, BusinessSection, FinancialsSection, GuidanceLedger, SnapshotTiles, StatementList, StatementText } from "@/components/research";
-import { Button, Delta, Empty, ErrorBox, Panel, Skeleton } from "@/components/ui";
+import { Button, CompanyLogo, Delta, Empty, ErrorBox, Panel, Skeleton } from "@/components/ui";
 import { fileUrl, post, useApi, type Cite, type FeedItem, type Job, type Status } from "@/lib/api";
 import { ago, crore, dateShort, num, pct, price } from "@/lib/format";
 
@@ -66,10 +66,10 @@ export default function CompanyPage() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [startErr, setStartErr] = useState<string | null>(null);
   const { data: status } = useApi<Status>("/api/status");
-  // A first visit triggers a background price fetch; re-check a few times until prices arrive.
+  // A first visit triggers a background fetch of prices and stats (incl. logo); re-check a few times until they arrive.
   const pricePolls = useRef(0);
   const { data: co, error: coErr, mutate: mutateCo } = useApi<any>(`/api/companies/${symbol}`, {
-    refreshInterval: (d: any) => (d && !d.prices?.length && pricePolls.current++ < 5 ? 4000 : 0),
+    refreshInterval: (d: any) => (d && (!d.prices?.length || d.logo_pending) && pricePolls.current++ < 5 ? 4000 : 0),
   });
   const { data: rs, mutate: mutateRs } = useApi<{ status: string; content: any; job: Job | null }>(`/api/research/${symbol}`);
   const activeJob = jobId ?? (rs?.status === "building" ? rs.job?.id : null) ?? null;
@@ -116,7 +116,7 @@ export default function CompanyPage() {
         </button>
         <nav className="mb-3 hidden text-[12.5px] text-faint lg:block"><Link href="/research" className="hover:text-text">Company research</Link> / {symbol}</nav>
         <div className="flex flex-wrap items-start gap-4">
-          <span className="grid size-12 shrink-0 place-items-center rounded-[12px] bg-ink text-[16px] font-semibold text-ink-text">{symbol.slice(0, 2)}</span>
+          <CompanyLogo symbol={symbol} logo={co?.logo} className="size-12 rounded-[12px] text-[16px]" />
           <div className="min-w-0 flex-1">
             {!co ? <Skeleton className="h-6 w-56" /> : <h1 className="text-[18px] font-semibold leading-tight tracking-[-0.02em] sm:text-[20px] lg:text-[22px]">{co.name}</h1>}
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px]">

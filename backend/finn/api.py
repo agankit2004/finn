@@ -66,6 +66,14 @@ def _prices(s, company_id: int, limit: int = 60) -> list[Price]:
     return list(s.execute(select(Price).where(Price.company_id == company_id).order_by(Price.date.desc()).limit(limit)).scalars())[::-1]
 
 
+def _logo(c: Company) -> str | None:
+    """The company's own site icon, via Google's public favicon service (no key). The UI falls back to initials."""
+    if not c.website:
+        return None
+    host = re.sub(r"^https?://", "", c.website).split("/")[0].removeprefix("www.")
+    return f"https://www.google.com/s2/favicons?domain={host}&sz=128" if host else None
+
+
 def _clean_subject(subj: str) -> str:
     s = re.sub(r"^(announcement under regulation 30 \(lodr\)\s*[-–:]\s*)", "", subj or "", flags=re.I)
     s = re.sub(r"^(intimation|disclosure) under regulation \d+[^-–:]*[-–:]\s*", "", s, flags=re.I)
@@ -606,7 +614,8 @@ def research_index():
         reps = list(s.execute(select(ResearchReport, Company).join(Company).order_by(ResearchReport.created_at.desc())))
         jobs = list(s.execute(select(Job, Company).join(Company).where(Job.status.in_(["queued", "running"]))))
         return {
-            "dossiers": [{"symbol": c.nse_symbol, "name": c.name, "sector": c.sector, "generated_at": iso(r.created_at),
+            "dossiers": [{"symbol": c.nse_symbol, "name": c.name, "sector": c.sector, "logo": _logo(c),
+                          "generated_at": iso(r.created_at),
                           "latest_quarter": (r.content or {}).get("latest_quarter")} for r, c in reps],
             "building": [{"symbol": c.nse_symbol, "job_id": j.id, "step": j.step, "progress": j.progress} for j, c in jobs],
             "suggested": universe.RESEARCH_PICKS,
@@ -640,7 +649,7 @@ def company(symbol: str, bg: BackgroundTasks):
         pc: dict = {}
         out = {
             "symbol": c.nse_symbol, "name": c.name, "sector": c.sector, "is_financial": c.is_financial, "known": True,
-            "bse_code": c.bse_code,
+            "bse_code": c.bse_code, "logo": _logo(c), "logo_pending": c.website is None,
             "prices": [{"date": r.date.isoformat(), "close": round(r.close, 2), "volume": r.volume} for r in rows],
             "stats": stats, "in_portfolio": bool(held), "quantity": held.quantity if held else None,
             "dossier": {"generated_at": iso(rep.created_at), "latest_quarter": rep.content.get("latest_quarter")} if rep else None,
@@ -648,8 +657,11 @@ def company(symbol: str, bg: BackgroundTasks):
             "announcements": [_ann_item(s, a, pc) for a in anns],
             "sample": c.source == "sample",
         }
+        need_stats = c.website is None
     if not rows and not config.SAMPLE_MODE:
         bg.add_task(ingest.refresh_prices, [sym], True)
+    elif need_stats and not config.SAMPLE_MODE:  # companies saved before logos existed
+        bg.add_task(ingest.refresh_stats, [sym])
     return out
 
 

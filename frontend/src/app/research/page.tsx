@@ -1,12 +1,12 @@
 "use client";
 import Link from "next/link";
 import { CompanySearch, PageHeader } from "@/components/shell";
-import { Empty, Panel, Skeleton } from "@/components/ui";
+import { CompanyLogo, Empty, Panel, Skeleton } from "@/components/ui";
 import { useApi, type Portfolio } from "@/lib/api";
 import { ago } from "@/lib/format";
 
 type Index = {
-  dossiers: { symbol: string; name: string; sector?: string; generated_at: string; latest_quarter?: string }[];
+  dossiers: { symbol: string; name: string; sector?: string; logo?: string | null; generated_at: string; latest_quarter?: string }[];
   building: { symbol: string; job_id: number; step: string; progress: number }[];
   suggested: string[];
 };
@@ -46,7 +46,7 @@ export default function ResearchIndex() {
               {data.dossiers.map((d) => (
                 <li key={d.symbol}>
                   <Link href={`/research/${d.symbol}`} className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60 sm:px-5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-ink text-[12px] font-semibold text-ink-text">{d.symbol.slice(0, 2)}</span>
+                    <CompanyLogo symbol={d.symbol} logo={d.logo} className="size-9 text-[12px]" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13.5px] font-semibold">{d.name}</span>
                       <span className="block text-[12px] text-muted">{d.symbol}{d.sector ? ` · ${d.sector}` : ""}{d.latest_quarter ? ` · numbers to ${d.latest_quarter}` : ""}</span>

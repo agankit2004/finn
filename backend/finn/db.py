@@ -48,6 +48,7 @@ class Company(Base):
     pe: Mapped[float | None] = mapped_column(Float)
     dividend_yield: Mapped[float | None] = mapped_column(Float)
     stats_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    website: Mapped[str | None] = mapped_column(String(200))  # from Yahoo; used only to show the logo
     source: Mapped[str] = mapped_column(String(16), default="live")  # live | sample
 
 
@@ -296,8 +297,21 @@ if config.DATABASE_URL.startswith("sqlite"):
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
+_ADDED_COLUMNS = {"companies": {"website": "VARCHAR(200)"}}  # columns added after the first release
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    # create_all doesn't add new columns to existing tables, so add them here (works on SQLite and Postgres).
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, cols in _ADDED_COLUMNS.items():
+            have = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols.items():
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 @contextmanager
