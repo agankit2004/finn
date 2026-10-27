@@ -27,11 +27,15 @@ function Freshness({ status }: { status?: Status }) {
   if (!status) return null;
   if (status.sample_mode) return <p className="text-[12px] text-ink-muted">Sample mode: no live sources are being polled.</p>;
   const ann = status.runs.announcements;
+  // Filings can be collected by another machine into the same database (the cloud server is often blocked by the
+  // exchanges), so only warn when no check anywhere has succeeded for 2 hours.
+  const lastOk = ann.last_success ? Date.parse(ann.last_success.endsWith("Z") ? ann.last_success : ann.last_success + "Z") : 0;
+  const filingsStale = ann.status === "failed" && Date.now() - lastOk > 2 * 3600 * 1000;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-muted">
       <span>Prices: end of day, {status.prices.as_of ? dateShort(status.prices.as_of) : "not loaded yet"}
         {status.prices.stale && <span className="text-warn"> (stale)</span>}</span>
-      <span>Filings checked {ago(ann.last_success)}{ann.status === "failed" && <span className="text-warn"> · last check failed</span>}</span>
+      <span>Filings checked {ago(ann.last_success)}{filingsStale && <span className="text-warn"> · recent checks failed</span>}</span>
       {!status.sample_mode && (
         <button disabled={busy} onClick={async () => {
           setBusy(true);
