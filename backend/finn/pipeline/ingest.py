@@ -120,9 +120,11 @@ def refresh_prices(symbols: list[str] | None = None, with_stats: bool = True) ->
             df = data.get(sym)
             if df is None:
                 continue
+            # One query per company for existing rows (not one per day: ~500 round trips to a remote DB).
+            have = {p.date: p for p in s.execute(select(Price).where(Price.company_id == cid)).scalars()}
             for row in df.itertuples(index=False):
                 d = row.date if isinstance(row.date, date) else row.date.date()
-                p = s.get(Price, (cid, d))
+                p = have.get(d)
                 if p is None:
                     p = Price(company_id=cid, date=d)
                     s.add(p)

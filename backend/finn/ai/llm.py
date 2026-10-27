@@ -34,6 +34,10 @@ _last = 0.0
 _dead_models: set[str] = set()
 
 
+class ModelBusy(RuntimeError):
+    """Gemini 503: this model is overloaded right now."""
+
+
 class LlmUnavailable(RuntimeError):
     pass
 
@@ -89,8 +93,10 @@ def _gemini(model: str, system: str, prompt: str, pdf: bytes | None, temperature
     )
     if r.status_code == 404:
         raise FileNotFoundError(model)
-    if r.status_code in (429, 503):  # rate limit or "model overloaded": both pass, so back off and retry
+    if r.status_code == 429:  # rate limit: passes after a pause, so back off and retry
         raise TimeoutError(r.text[:300])
+    if r.status_code == 503:  # "high demand" on this model: another model is usually free right now
+        raise ModelBusy(r.text[:300])
     if r.status_code in (400, 401, 403) and ("API_KEY_INVALID" in r.text or "API key not valid" in r.text
                                              or "PERMISSION_DENIED" in r.text):
         raise KeyError("Gemini API key is invalid or not allowed to use this API")
@@ -166,8 +172,13 @@ def generate_json(
                     _dead_models.add(model)
                     errors.append(f"{model}: not found")
                     break
-                except TimeoutError as e:  # 429/503: back off and retry the same model
-                    errors.append(f"{model}: rate limited or busy")
+                except ModelBusy:  # one quick retry, then move on to the next model
+                    errors.append(f"{model}: busy")
+                    if attempt >= 1:
+                        break
+                    time.sleep(3)
+                except TimeoutError as e:  # 429: back off and retry the same model
+                    errors.append(f"{model}: rate limited")
                     time.sleep(10 * (attempt + 1))
                     if attempt == 2:
                         log.warning("rate limit persists on %s: %s", model, e)

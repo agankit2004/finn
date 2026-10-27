@@ -42,7 +42,8 @@ GEMINI_SMART_MODEL = os.getenv("GEMINI_SMART_MODEL", "gemini-flash-latest")
 GEMINI_FALLBACK_MODELS = [
     m.strip()
     for m in os.getenv(
-        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash"
+        # Tried in order when the main model is busy or gone (Google retired 2.x for new keys in 2026).
+        "GEMINI_FALLBACK_MODELS", "gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite"
     ).split(",")
     if m.strip()
 ]
