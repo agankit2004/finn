@@ -65,7 +65,7 @@ Keep the laptop and phone on the same Wi-Fi network. `start.sh` prints a link li
 4. **Alerts:** the default price move is 4%. Change it to 1% and save: alerts appear for any holding that moved more than 1% in recent sessions. Raise it again and the smaller ones drop out of the lists (they're kept, not deleted).
 5. **Research:** search `ASIANPAINT` (not in the portfolio) → *Build research dossier*. In 2–5 minutes you get Overview, Financials, Guidance vs delivered and Ask FINN. Tap any small blue number to see the source passage and open the PDF at that page.
 6. **Settings:** data-source health, last refresh times, and the AI usage ledger (calls, cache hits, tokens).
-7. Backend tests: `cd backend && source .venv/bin/activate && python -m pytest -q` (49 tests, no network needed; the screener parser is tested on a saved copy of a real page).
+7. Backend tests: `cd backend && source .venv/bin/activate && python -m pytest -q` (56 tests, no network needed; the screener parser is tested on a saved copy of a real page).
 
 Useful commands (run inside `backend/` with the venv active):
 
