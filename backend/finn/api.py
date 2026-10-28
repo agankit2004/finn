@@ -461,7 +461,8 @@ def feed(hours: int = Query(24, ge=1, le=24 * 90), category: str = "all", symbol
         anns = list(s.execute(q).scalars())
         evq = select(AlertEvent).where(AlertEvent.kind.in_(["price", "volume"]), AlertEvent.occurred_at >= since,
                                        AlertEvent.occurred_at <= until, AlertEvent.company_id.in_(held))
-        events = list(s.execute(evq).scalars())
+        rules = alerts_mod.get_rules(s)
+        events = [e for e in s.execute(evq).scalars() if alerts_mod.meets_rules(e, rules)]
         pc: dict = {}
         items = [_ann_item(s, a, pc) for a in anns]
         # Merge price + volume alerts for the same stock/day into one item.
@@ -579,8 +580,9 @@ def list_alerts(days: int = Query(14, ge=1, le=120)):
     since = utcnow() - timedelta(days=days)
     with session_scope() as s:
         held = {r[0] for r in s.execute(select(Holding.company_id))}
-        evs = list(s.execute(select(AlertEvent).where(AlertEvent.occurred_at >= since, AlertEvent.company_id.in_(held))
-                             .order_by(AlertEvent.occurred_at.desc())).scalars())
+        rules = alerts_mod.get_rules(s)
+        evs = [e for e in s.execute(select(AlertEvent).where(AlertEvent.occurred_at >= since, AlertEvent.company_id.in_(held))
+                                    .order_by(AlertEvent.occurred_at.desc())).scalars() if alerts_mod.meets_rules(e, rules)]
         pc: dict = {}
         out = []
         price_days = {(e.company_id, e.trigger_key) for e in evs if e.kind == "price"}
@@ -745,6 +747,17 @@ def _job_dict(j: Job) -> dict:
 def start_research(symbol: str, force: bool = False):
     if config.SAMPLE_MODE:
         raise HTTPException(409, "Research builds are disabled in sample mode.")
+    # Each build makes ~15 AI calls; the free Gemini tier allows ~20/day on its bigger models. Builds from the
+    # command line (the data collector) don't go through here and aren't counted.
+    today = utcnow().date().isoformat()
+    with session_scope() as s:
+        used = get_setting(s, "api_builds") or {}
+        n = used.get("n", 0) if used.get("date") == today else 0
+        if n >= config.MAX_API_BUILDS_PER_DAY:
+            raise HTTPException(429, f"FINN builds at most {config.MAX_API_BUILDS_PER_DAY} dossiers a day from the "
+                                     "website, to stay within its free AI quota. Existing dossiers are still available; "
+                                     "try again tomorrow.")
+        set_setting(s, "api_builds", {"date": today, "n": n + 1})
     try:
         job_id = research.start(symbol, force=force)
     except (LookupError, ValueError) as e:

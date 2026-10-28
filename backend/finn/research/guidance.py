@@ -109,6 +109,16 @@ def parse_period(label: str | None) -> dict | None:
     return None
 
 
+def default_period(made_in: str | None) -> dict | None:
+    """When management gives a target without a period, judge it on the fiscal year it was said in;
+    a Q4 call (held after the year ends) talks about the NEXT year."""
+    p = parse_period(made_in)
+    if not p:
+        return None
+    fy = p["fy"] + 1 if p["kind"] == "Q" and p["end"].month == 3 else p["fy"]
+    return {"kind": "FY", "fy": fy, "end": date(fy, 3, 31), "assumed": True}
+
+
 def _fy_quarters(fy: int) -> list[date]:
     return [date(fy - 1, 6, 30), date(fy - 1, 9, 30), date(fy - 1, 12, 31), date(fy, 3, 31)]
 

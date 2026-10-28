@@ -5,6 +5,8 @@ A mobile-first web app for investors tracking Indian listed companies. FINN filt
 - **Push.** A ranked brief of every filing across your portfolio for the window you choose. Routine paperwork is collapsed. Results filings become a Revenue / EBITDA / PBT / PAT table with QoQ and YoY. Management changes show who the person is, from the filing itself. Price and volume alerts fire on thresholds you set.
 - **Pull.** A research dossier for any NSE ticker, built only from primary documents: results filings, concall transcripts and the annual report. Every claim links to the page it came from. The flagship view, **Guidance vs delivered**, checks what management promised in the last four calls against what the results show.
 
+**Live prototype:** https://finn-plum.vercel.app (backend: https://finn-api-ds9a.onrender.com/api/health). The free backend sleeps when idle, so the first page can take ~30 s.
+
 ---
 
 ## 1. What you need
@@ -26,7 +28,7 @@ Without a Gemini key, prices, filings, news, ranking and alerts still work. Resu
    - **By hand:** put `GEMINI_API_KEY=AIza...` in `backend/.env` and restart `./start.sh`.
 3. Check: `./start.sh check` shows **OK  Gemini API**, and Settings shows *Connected*.
 
-FINN calls Gemini's REST API directly (`generativelanguage.googleapis.com`). The model names default to Google's `gemini-flash-lite-latest` (bulk reading) and `gemini-flash-latest` (research). If Google renames them, set `GEMINI_FAST_MODEL` / `GEMINI_SMART_MODEL` in `.env`; FINN also falls back to `gemini-2.5-flash` automatically.
+FINN calls Gemini's REST API directly (`generativelanguage.googleapis.com`). The model names default to Google's `gemini-flash-lite-latest` (bulk reading) and `gemini-flash-latest` (research). If Google renames them, set `GEMINI_FAST_MODEL` / `GEMINI_SMART_MODEL` in `.env`. When a model is busy (503) or its daily free quota is used up, FINN moves down `GEMINI_FALLBACK_MODELS` (default `gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-flash-lite-latest`) and skips a used-up model until Google's reset time.
 
 ## 2. Install and run (about 3 minutes)
 
@@ -60,10 +62,10 @@ Keep the laptop and phone on the same Wi-Fi network. `start.sh` prints a link li
 1. `./start.sh check` should show **OK** for Yahoo, BSE, Google News and Gemini (NSE and screener are fallbacks; OK is a bonus).
 2. **Home:** the hero shows portfolio value with an end-of-day date. *Top updates* lists ranked filings, with "N routine filings hidden" at the bottom.
 3. Tap a **Results** item: a table of Revenue, EBITDA, PBT and PAT with QoQ/YoY and the page it came from. *Open filing* opens the exchange PDF.
-4. **Alerts:** change "Price move" to 1% and save. New price alerts appear for any holding that moved more than 1% in recent sessions.
+4. **Alerts:** the default price move is 4%. Change it to 1% and save: alerts appear for any holding that moved more than 1% in recent sessions. Raise it again and the smaller ones drop out of the lists (they're kept, not deleted).
 5. **Research:** search `ASIANPAINT` (not in the portfolio) → *Build research dossier*. In 2–5 minutes you get Overview, Financials, Guidance vs delivered and Ask FINN. Tap any small blue number to see the source passage and open the PDF at that page.
 6. **Settings:** data-source health, last refresh times, and the AI usage ledger (calls, cache hits, tokens).
-7. Backend tests: `cd backend && source .venv/bin/activate && python -m pytest -q` (30 tests, no network needed).
+7. Backend tests: `cd backend && source .venv/bin/activate && python -m pytest -q` (49 tests, no network needed; the screener parser is tested on a saved copy of a real page).
 
 Useful commands (run inside `backend/` with the venv active):
 
@@ -104,18 +106,21 @@ python -m scripts.refresh research TCS       # build a dossier from the terminal
 
 ### Data sources and their honest limits
 - **Prices:** Yahoo Finance via `yfinance` (`RELIANCE.NS`). **End-of-day only**, labelled as such everywhere. If Yahoo fails, FINN tries NSE's official daily bhavcopy file. Stored prices keep working through an outage, and a "stale" flag appears if the latest session is missing.
-- **Announcements:** BSE's corporate-filings JSON (the endpoint behind bseindia.com), with NSE as fallback. **Neither is an official API.** They can change or block requests, and NSE often blocks cloud servers. FINN makes one request per company per poll, every 30 minutes, with backoff, and stores everything. Each filing is processed once (unique exchange id + PDF hash).
-- **Fundamentals:** results filings, concall transcripts and annual reports, discovered from the company's BSE filings (SEBI requires transcripts and annual reports to be filed). screener.in is used only to find links when filings are missing; screener's own numbers are never used as evidence.
+- **Announcements:** BSE's corporate-filings JSON (the endpoint behind bseindia.com), then NSE's, then the filings listed on the company's **screener.in** page. **None is an official API.** In October 2026 BSE and NSE refused FINN's requests (403) from every machine tried, so the screener route does the work: it lists each company's latest BSE filings with their own title, exact filing time and the **original BSE PDF**, which is what FINN reads. Screener's one-line summaries are ignored, and each item's *Source* box says it was found through screener. FINN makes one request per company per poll with a 3-second gap, a circuit breaker per source, and stores everything; the same BSE document found two ways is stored once (matched on BSE's file name).
+- **Fundamentals:** results filings, concall transcripts and annual reports. Screener's per-quarter links redirect to each quarter's results filing **on BSE**; its concall list links transcripts filed with the exchange. Screener's own numbers and tables are never used as evidence. Documents found by earlier builds are reused, so a rebuild on a machine that can't reach the sources never loses them.
+- **Where the sources can be reached:** BSE, NSE and screener.in block most cloud servers (Render included), but work from a laptop. So filings are collected by a *collector* (a laptop running FINN, or the GitHub Actions workflow in §5) into the shared database, and the deployed site shows what's there. Dossiers built from the website when the sources are blocked say *Built with limited sources*.
 - **News headlines:** Google News RSS per company (free, no key), searched with the names headlines actually use (L&T, HUL, Airtel…), filtered to headlines that name the company, and grouped when several publishers cover the same story. FINN stores only the headline, publisher, time and link. News appears on Home and each company's *News* tab, and is **never used as research evidence** (the brief requires primary sources for analysis).
 - **Management background** comes from the profile companies must include in the appointment filing. FINN does not scrape LinkedIn (its terms forbid it); it offers a LinkedIn search link instead.
 
 ### AI design: cheap, cached, checked
 - **Rules first.** BSE category + keyword rules classify most filings; only leftovers go to the model, 40 per call.
 - **Model routing.** Flash-Lite for bulk extraction; Flash only for research writing and Q&A. Configurable in `.env`.
-- **Numbers never come from the model.** The model reads values off the page; code normalises units (lakh → crore), picks QoQ/YoY columns **by date**, computes EBITDA, margins and growth, handles negative bases ("loss narrowed"), and runs consistency checks (PBT − tax ≈ PAT).
+- **Numbers never come from the model.** The model reads values off the page; code normalises units (lakh → crore), picks QoQ/YoY columns **by date**, computes EBITDA, margins and growth, handles negative bases ("loss narrowed"), and runs consistency checks (PBT − tax ≈ PAT). For every column it uses, code checks **revenue + other income = total income**. If that fails but total income − expenses = PBT holds, revenue is recomputed as total income − other income and the card says so; otherwise revenue is shown as *n/a*. (This caught Infosys Q1 FY27 read off a scanned page as 25,287, its employee cost, instead of 48,211.)
+- **Guidance verdicts.** Quotes must appear verbatim in the transcript or are flagged. Numeric targets are judged in code against the results; a target without a stated period is judged on the fiscal year it refers to (a Q4 call talks about the next year), and the verdict says that it assumed this.
 - **Grounding.** Every AI sentence must cite source ids. FINN checks that each cited id exists and that **every number in the sentence appears in the cited source**. Failures are shown as *unverified*, not hidden.
 - **Facts vs interpretation.** Tables say "computed by FINN"; narrative says "FINN's read"; guidance verdicts say whether code or the model decided.
 - **Caching.** Every response is cached by input hash, so a filing costs tokens once. On the free tier the cost is ₹0; Settings shows the ledger.
+- **Free-tier limits.** Gemini's free tier allows about 20 requests a day per Flash model. FINN skips a model whose daily quota is used up, and the website builds at most `FINN_MAX_API_BUILDS_PER_DAY` (default 6) dossiers a day; builds from the command line or collector aren't counted.
 
 ---
 
@@ -124,10 +129,12 @@ python -m scripts.refresh research TCS       # build a dossier from the terminal
 1. **Database:** create a free Postgres at neon.tech and copy its connection string.
 2. **Backend on Render:** *New → Blueprint* → pick this repo (uses `render.yaml`). Set `DATABASE_URL` and `GEMINI_API_KEY`. Copy the generated `FINN_REFRESH_SECRET`.
 3. **Frontend on Vercel:** import the repo and set the root directory to `frontend`. Add env `NEXT_PUBLIC_API_URL=https://<your-render-app>.onrender.com`.
-4. **Freshness:** in GitHub → Settings → Secrets, add `FINN_API_URL` and `FINN_REFRESH_SECRET`. The workflow in `.github/workflows/refresh.yml` refreshes every 30 minutes in market hours and keeps the free server awake.
-5. **If exchanges block Render's IP** (check *Settings → Data sources*): run ingestion from your laptop into the same database. Put Neon's `DATABASE_URL` in `backend/.env` and run `python -m scripts.refresh`. The deployed app reads whatever is in the database.
+4. **Prices and wake-ups:** add the repository secret `FINN_API_URL` (and optionally `FINN_REFRESH_SECRET`). `.github/workflows/refresh.yml` calls the backend every 30 minutes in market hours: prices refresh and the free server stays awake.
+5. **Filings (the collector).** BSE, NSE and screener.in block Render, so filings must be collected elsewhere into the same database:
+   - **GitHub Actions:** add the secrets `DATABASE_URL` and `GEMINI_API_KEY`. `.github/workflows/collect.yml` runs every 30 minutes in market hours; its first step prints which sources answer from GitHub's machines.
+   - **A laptop:** put Neon's `DATABASE_URL` in `backend/.env` and keep `./start.sh` running (it polls every 30 minutes), or run `python -m scripts.refresh announcements` and `python -m scripts.refresh enrich`. Build dossiers here too: `python -m scripts.refresh research TCS`.
 
-Free-tier caveats: Render sleeps after 15 idle minutes, so the first request takes about 30 s. Gemini's free tier has per-minute and per-day limits; FINN paces calls and retries on 429.
+Free-tier caveats: Render sleeps after 15 idle minutes, so the first request takes about 30 s. Gemini's free tier has per-minute and per-day limits (see *Free-tier limits* above).
 
 ---
 

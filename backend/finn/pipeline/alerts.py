@@ -48,6 +48,18 @@ def get_rules(s) -> dict:
     return out
 
 
+def meets_rules(ev, rules: dict) -> bool:
+    """Does a stored price/volume alert still pass the CURRENT thresholds? Alerts are kept when the user
+    changes a threshold; the lists just show the ones that pass it (lower it again and they come back)."""
+    if ev.kind not in ("price", "volume"):
+        return True
+    ob = ev.observed or {}
+    own = rules.get("overrides", {}).get(ev.company_id, {})
+    if ev.kind == "price":
+        return rules["price_enabled"] and abs(ob.get("change_pct") or 0) >= own.get("price_pct", rules["price_pct"])
+    return rules["volume_enabled"] and (ob.get("volume_mult") or 0) >= own.get("volume_mult", rules["volume_mult"])
+
+
 def price_stats(rows: list[Price]) -> dict:
     """rows sorted ascending by date. Returns latest close, day change % and volume multiple."""
     if not rows:

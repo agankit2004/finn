@@ -58,6 +58,7 @@ LOGO_DEV_TOKEN = os.getenv("LOGO_DEV_TOKEN", "").strip()
 RUN_SCHEDULER = _bool("FINN_RUN_SCHEDULER", True)
 ANNOUNCEMENT_POLL_MINUTES = int(os.getenv("FINN_ANNOUNCEMENT_POLL_MINUTES", "30"))
 ENRICH_LIMIT_PER_RUN = int(os.getenv("FINN_ENRICH_LIMIT_PER_RUN", "25"))
+MAX_API_BUILDS_PER_DAY = int(os.getenv("FINN_MAX_API_BUILDS_PER_DAY", "6"))  # dossier builds started from the website
 REFRESH_SECRET = os.getenv("FINN_REFRESH_SECRET", "").strip()
 CORS_ORIGINS = [o.strip() for o in os.getenv("FINN_CORS_ORIGINS", "*").split(",") if o.strip()]
 USER_NAME = os.getenv("FINN_USER_NAME", "").strip()

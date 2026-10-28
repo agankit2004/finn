@@ -255,3 +255,9 @@ def test_misread_revenue_is_recomputed_or_dropped():
     assert "isn't shown" in fin.reconcile(bad) and bad["revenue_from_operations"] is None
     ok = {"revenue_from_operations": 49244.0, "other_income": 848.0, "total_income": 50092.0}
     assert fin.reconcile(ok) is None and ok["revenue_from_operations"] == 49244.0
+
+
+def test_guidance_without_period_is_judged_on_the_year_it_refers_to():
+    assert guidance.default_period("Q1 FY27")["fy"] == 2027
+    assert guidance.default_period("Q4 FY26")["fy"] == 2027  # Q4 call is held after year end: talks about next year
+    assert guidance.default_period(None) is None

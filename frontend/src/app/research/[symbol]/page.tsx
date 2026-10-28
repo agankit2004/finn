@@ -157,6 +157,13 @@ export default function CompanyPage() {
             {!status?.sample_mode && <button onClick={() => start(true)} className="inline-flex items-center gap-1 text-muted hover:text-text"><RefreshCw className="size-3" />Rebuild</button>}
           </p>
         )}
+        {d && !building && d.coverage.sources_limited && (
+          <p className="rounded-[var(--radius-sm)] border border-warn/30 bg-warn/10 px-3 py-2 text-[12.5px] text-text">
+            Built with limited sources: this server couldn't reach BSE, NSE or screener.in (they block most cloud
+            servers), so only documents collected earlier were used. FINN's data collector fills in new filings and
+            transcripts where those sites can be reached.
+          </p>
+        )}
 
         {tab === "overview" && (
           <>

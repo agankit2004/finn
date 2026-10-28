@@ -104,8 +104,11 @@ def _run(job_id: int, company_id: int, force: bool) -> None:
 
 
 # --- document discovery ---------------------------------------------------------------------------
-def _discover(job_id: int, company: Company) -> dict:
+def _discover(job_id: int, company: Company) -> tuple[dict, bool]:
+    """Returns (documents by type, sources_limited). sources_limited means the exchanges AND screener.in
+    refused us (typical on cloud servers), so only documents stored by earlier builds could be used."""
     found = {"results": [], "transcript": [], "annual_report": [], "presentation": []}
+    screener_failed = False
     end = datetime.now(IST).date()
     windows = [(end - timedelta(days=d + 95), end - timedelta(days=d)) for d in range(0, 460, 95)]
     raws = []
@@ -162,10 +165,25 @@ def _discover(job_id: int, company: Company) -> dict:
                                                    "via": "screener"})
             _job_update(job_id, log_line=f"screener.in links: {len(sc['transcripts'])} transcripts, {len(sc['annual_reports'])} annual reports")
         except SourceError as e:
+            screener_failed = True
             _job_update(job_id, log_line=f"screener.in unavailable ({str(e)[:100]})")
+    # Reuse documents found by earlier builds (e.g. by the data collector), so a build on a machine
+    # that can't reach the sources never loses them.
+    with session_scope() as s:
+        have = {d["url"] for v in found.values() for d in v}
+        reused = 0
+        for doc in s.execute(select(Document).where(Document.company_id == company.id,
+                                                    Document.doc_type.in_(["results", "transcript", "annual_report"]))).scalars():
+            if doc.url not in have and doc.parse_status != "failed":
+                found[doc.doc_type].append(
+                    {"title": doc.title, "url": doc.url, "filed_at": doc.filed_at, "via": doc.discovered_via,
+                     "announcement_id": doc.announcement_id})
+                reused += 1
+        if reused:
+            _job_update(job_id, log_line=f"Reused {reused} documents found by earlier builds")
     for k in found:
         found[k].sort(key=lambda d: d.get("filed_at") or datetime(1900, 1, 1), reverse=True)
-    return found
+    return found, bool(errors) and screener_failed
 
 
 def _upsert_doc(s, company_id: int, d: dict, doc_type: str) -> Document:
@@ -210,15 +228,16 @@ def build(job_id: int, company_id: int, force: bool = False) -> None:
         _job_update(job_id, log_line=f"Price fetch failed: {str(e)[:120]}")
 
     _job_update(job_id, step="Finding filings, transcripts and annual reports", progress=0.1)
-    found = _discover(job_id, company)
+    found, limited = _discover(job_id, company)
     _job_update(job_id, log_line=(f"Found {len(found['results'])} results filings, {len(found['transcript'])} transcripts, "
                                   f"{len(found['annual_report'])} annual reports"))
 
     if not any(found.values()):
         raise RuntimeError(
-            "No filings, transcripts or annual reports could be found for this company. The exchange and "
-            "screener.in may be blocking requests from this machine right now (see Settings → Data sources), "
-            "or the company has no BSE filings. Try again later.")
+            "FINN couldn't reach BSE, NSE or screener.in from this server (they block most cloud servers), and "
+            "no documents for this company were collected earlier. Dossiers for new companies are built by "
+            "FINN's data collector, which runs where those sites can be reached." if limited else
+            "No filings, transcripts or annual reports could be found for this company. Try again later.")
 
     # 3. results filings -> metrics (dedupe by quarter; newest filing wins)
     results_docs = []
@@ -304,7 +323,7 @@ def build(job_id: int, company_id: int, force: bool = False) -> None:
             _job_update(job_id, log_line=f"Annual report failed: {str(e)[:140]}")
 
     _job_update(job_id, step="Comparing guidance with results and writing the dossier", progress=0.8)
-    compose(company_id, job_id)
+    compose(company_id, job_id, sources_limited=limited)
 
 
 def _doc_set_hash(s, company_id: int) -> str:
@@ -312,7 +331,8 @@ def _doc_set_hash(s, company_id: int) -> str:
     return hashlib.sha256(json.dumps(sorted([d[0], d[1]] for d in docs)).encode()).hexdigest()
 
 
-def compose(company_id: int, job_id: int | None = None, synth_override: dict | None = None) -> dict:
+def compose(company_id: int, job_id: int | None = None, synth_override: dict | None = None,
+            sources_limited: bool = False) -> dict:
     """Assemble the dossier. Numbers come from code; prose comes from one 'smart' call, then grounding checks."""
     with session_scope() as s:
         company = s.get(Company, company_id)
@@ -331,8 +351,12 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
         ledger, qualitative = [], []
         for g in g_rows:
             period = guidance.parse_period(g.target_period)
+            if not period and g.metric in ("revenue_growth", "pat_growth", "ebitda_margin", "capex"):
+                period = guidance.default_period(g.made_in)
             act = guidance.actual_for(m, g.metric, period) if period else None
             v, note = guidance.verdict({"metric": g.metric, "target_low": g.target_low, "target_high": g.target_high, "unit": g.unit}, act)
+            if note and period and period.get("assumed"):
+                note = f"Period not stated; judged on FY{period['fy'] % 100:02d}, the year it refers to. {note}"
             if g.metric in ("other", "volume_growth") or (v == "unverifiable"):
                 qualitative.append(g)
             g.verdict, g.actual_value = v, act["value"] if act else None
@@ -451,6 +475,7 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
                 "transcripts": sum(1 for d in docs if d.doc_type == "transcript" and d.parse_status == "parsed"),
                 "annual_report": any(d.doc_type == "annual_report" and d.parse_status == "parsed" for d in docs),
                 "llm": config.llm_enabled(),
+                "sources_limited": sources_limited,
             },
             "documents": [{"id": d.id, "type": d.doc_type, "title": d.title, "period": d.period_label,
                            "filed_at": d.filed_at.isoformat() + "Z" if d.filed_at else None, "pages": d.page_count,
