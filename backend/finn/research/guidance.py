@@ -119,6 +119,25 @@ def default_period(made_in: str | None) -> dict | None:
     return {"kind": "FY", "fy": fy, "end": date(fy, 3, 31), "assumed": True}
 
 
+_LONG_TERM = re.compile(r"long[- ]?term|medium[- ]?term|\bcagr\b|\b\d+\s*(-|to)?\s*\d*\s*years?\b|(two|three|four|five)[- ]years?|"
+                        r"next few years|over (the )?(next|coming)|over time|gradual|ambition|aspir", re.I)
+_NAMES_METRIC = {
+    "ebitda_margin": re.compile(r"ebitda|pbdit|operating (profit )?margin", re.I),
+    "revenue_growth": re.compile(r"revenue|top[- ]?line|sales|value growth|turnover", re.I),
+    "pat_growth": re.compile(r"\bpat\b|net profit|profit after tax|bottom[- ]?line", re.I),
+    "capex": re.compile(r"capex|capital expenditure", re.I),
+}
+
+
+def can_assume_period(quote: str, metric: str) -> bool:
+    """Only fill in a missing period when the quote is clearly about the company-level measure FINN has
+    (it names EBITDA/PBDIT, revenue, PAT or capex) and isn't a multi-year or long-term ambition. Otherwise
+    the item stays pending: a wrong confident verdict is worse than none."""
+    rx = _NAMES_METRIC.get(metric)
+    return bool(rx and rx.search(quote or "") and not _LONG_TERM.search(quote or "")
+                and not re.search(r"segment|business margin|gross margin|contribution", quote or "", re.I))
+
+
 def _fy_quarters(fy: int) -> list[date]:
     return [date(fy - 1, 6, 30), date(fy - 1, 9, 30), date(fy - 1, 12, 31), date(fy, 3, 31)]
 
@@ -187,6 +206,8 @@ def verdict(item: dict, actual: dict | None) -> tuple[str, str | None]:
         return "unverifiable", None
     lo = lo if lo is not None else hi
     if item.get("metric") == "capex":
+        if item.get("unit") == "pct":  # "capex ~3% of sales": not comparable with rupees spent
+            return "unverifiable", None
         if not actual["complete"]:
             share = v / lo * 100 if lo else None
             return "tracking", (f"₹{v:,.0f} cr spent so far ({share:.0f}% of ₹{lo:,.0f} cr guided)" if share is not None else None)

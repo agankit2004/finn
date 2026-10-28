@@ -261,3 +261,21 @@ def test_guidance_without_period_is_judged_on_the_year_it_refers_to():
     assert guidance.default_period("Q1 FY27")["fy"] == 2027
     assert guidance.default_period("Q4 FY26")["fy"] == 2027  # Q4 call is held after year end: talks about next year
     assert guidance.default_period(None) is None
+
+
+@pytest.mark.parametrize("quote, metric, ok", [
+    ("We are still garnering around the guidance of 18-20% of our PBDIT margins holds.", "ebitda_margin", True),
+    ("we had taken a guidance of a CAGR of around 16.8% for 3 years", "revenue_growth", False),     # multi-year
+    ("we continue to grow in line with our ambitions set up for Suzlon 2.0 at 25% CAGR for the next 5 years", "revenue_growth", False),
+    ("11% being the center of gravity for jewellery business margin", "ebitda_margin", False),     # segment, not company
+    ("Our guidance still remains that we will be anywhere between this and 40%.", "ebitda_margin", False),  # measure not named
+    ("We are looking at mid-single-digit value growth for the full year.", "revenue_growth", True),
+])
+def test_missing_period_is_only_assumed_for_clear_company_targets(quote, metric, ok):
+    assert guidance.can_assume_period(quote, metric) is ok
+
+
+def test_capex_guided_as_percent_is_not_compared_with_rupees():
+    v, note = guidance.verdict({"metric": "capex", "target_low": 3.0, "target_high": None, "unit": "pct"},
+                               {"value": 593.0, "complete": True, "basis": "capex spent in FY26"})
+    assert v == "unverifiable" and note is None

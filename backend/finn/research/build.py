@@ -350,8 +350,10 @@ def compose(company_id: int, job_id: int | None = None, synth_override: dict | N
         g_rows = list(s.execute(select(GuidanceItem).where(GuidanceItem.company_id == company_id)).scalars())
         ledger, qualitative = [], []
         for g in g_rows:
+            if g.assessment_method != "llm" and (g.assessment or "").startswith(("Period not stated", "Actual ", "₹")):
+                g.assessment = None  # an earlier code verdict's note; recomputed below
             period = guidance.parse_period(g.target_period)
-            if not period and g.metric in ("revenue_growth", "pat_growth", "ebitda_margin", "capex"):
+            if not period and guidance.can_assume_period(g.quote, g.metric):
                 period = guidance.default_period(g.made_in)
             act = guidance.actual_for(m, g.metric, period) if period else None
             v, note = guidance.verdict({"metric": g.metric, "target_low": g.target_low, "target_high": g.target_high, "unit": g.unit}, act)
