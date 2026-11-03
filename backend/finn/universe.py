@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import re
+from pathlib import Path
 
 from . import config
 from .sources.http import SourceError, get, make_client
@@ -54,6 +55,9 @@ _FIN_HINTS = re.compile(r"\b(bank|finance|financial|insurance|nbfc|capital|housi
 _BSE_LIST_URL = "https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w"
 _NSE_LIST_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 _CACHE = config.DATA_DIR / "symbol_master.json"
+# NSE's own equity list (EQUITY_L.csv, fetched 27 Oct 2026). Used when NSE refuses the live download,
+# as it does from cloud servers, so search still covers every listed company.
+_BUNDLED = Path(__file__).with_name("nse_symbols.json")
 
 
 def clean_symbol(s: str) -> str:
@@ -128,7 +132,9 @@ def _fetch_master() -> dict:
         log.warning("BSE scrip list unavailable: %s", e)
     if master:
         _CACHE.write_text(json.dumps(master))
-    return master
+        return master
+    log.warning("Using the bundled NSE symbol list")
+    return json.loads(_BUNDLED.read_text())
 
 
 def resolve(symbol: str) -> dict:

@@ -72,14 +72,61 @@ function ItemSheet({ item, onClose }: { item: FeedItem | null; onClose: () => vo
 }
 
 // ---- search ----------------------------------------------------------------------------------------
+type CompanyHit = { symbol: string; name: string; in_portfolio: boolean; has_dossier: boolean };
+function useCompanyHits(q: string): CompanyHit[] {
+  const { data } = useApi<{ results: CompanyHit[] }>(
+    q.trim().length >= 1 ? `/api/companies/search?q=${encodeURIComponent(q.trim())}` : null, { keepPreviousData: false });
+  return data?.results ?? [];
+}
+
+/** Symbol field for forms: type part of a name or symbol, then pick the company from the list. */
+export function SymbolPicker({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const results = useCompanyHits(value);
+  const pick = (sym: string) => { onChange(sym); setOpen(false); };
+  const show = open && value.trim() !== "" && results.length > 0;
+  return (
+    <div className={clsx("relative", className)}>
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(0); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (!show) return;
+          if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(results.length - 1, h + 1)); }
+          if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(0, h - 1)); }
+          if (e.key === "Enter") { e.preventDefault(); pick(results[hi]?.symbol ?? value); }
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="Company or NSE symbol"
+        className="h-9 w-full rounded-[var(--radius-sm)] border border-line bg-surface px-2.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
+        aria-label="Company or NSE symbol" autoComplete="off" autoCapitalize="characters" spellCheck={false}
+      />
+      {show && (
+        <ul className="absolute left-0 top-10 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] border border-line bg-surface py-1 text-text shadow-xl">
+          {results.map((r, i) => (
+            <li key={r.symbol}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(r.symbol); }} onMouseEnter={() => setHi(i)}
+                className={clsx("flex w-full items-center gap-3 px-3 py-2.5 text-left", hi === i && "bg-surface-2")}>
+                <span className="w-24 shrink-0 text-[13px] font-semibold">{r.symbol}</span>
+                <span className="flex-1 truncate text-[13px] text-muted">{r.name}</span>
+                {r.in_portfolio && <span className="text-[11px] text-faint">Holding</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function CompanySearch({ dark, autoFocus, className, placeholder }: { dark?: boolean; autoFocus?: boolean; className?: string; placeholder?: string }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const router = useRouter();
-  const { data } = useApi<{ results: { symbol: string; name: string; in_portfolio: boolean; has_dossier: boolean }[] }>(
-    q.trim().length >= 1 ? `/api/companies/search?q=${encodeURIComponent(q.trim())}` : null, { keepPreviousData: false });
-  const results = data?.results ?? [];
+  const results = useCompanyHits(q);
   const go = (sym: string) => { setOpen(false); setQ(""); router.push(`/research/${sym.toUpperCase()}`); };
   const exact = /^[A-Za-z0-9&-]{2,20}$/.test(q.trim()) && !results.some((r) => r.symbol === q.trim().toUpperCase());
   const total = results.length + (exact ? 1 : 0);

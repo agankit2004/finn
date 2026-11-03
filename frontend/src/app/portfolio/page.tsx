@@ -4,7 +4,7 @@ import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { RangeChart } from "@/components/charts";
-import { PageHeader } from "@/components/shell";
+import { PageHeader, SymbolPicker } from "@/components/shell";
 import { Button, Delta, Empty, ErrorBox, Panel, Segmented, Skeleton, Sparkline } from "@/components/ui";
 import { post, useApi, type Holding, type Portfolio } from "@/lib/api";
 import { dateShort, inr, num, price, toneOf } from "@/lib/format";
@@ -36,16 +36,15 @@ function AddHolding({ onDone }: { onDone: (a: Added) => void }) {
     <form className="flex flex-wrap items-center gap-2" onSubmit={async (e) => {
       e.preventDefault();
       const n = Number(val);
-      if (!sym.trim()) return setErr("Enter an NSE symbol, for example TCS.");
+      if (!sym.trim()) return setErr("Type a company name or NSE symbol, for example TCS.");
       if (!(n > 0)) return setErr(mode === "shares" ? "Enter how many shares you hold." : "Enter the amount in ₹.");
       setBusy(true); setErr(null);
       try {
-        const r = await post<Added>("/api/portfolio/holdings", { symbol: sym.trim(), [mode === "shares" ? "quantity" : "amount"]: n });
+        const r = await post<Added>("/api/portfolio/holdings", { symbol: sym.trim().toUpperCase(), [mode === "shares" ? "quantity" : "amount"]: n });
         setSym(""); setVal(""); onDone(r);
       } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
     }}>
-      <input value={sym} onChange={(e) => setSym(e.target.value.toUpperCase())} placeholder="NSE symbol"
-        className={clsx(inputCls, "w-32 uppercase")} aria-label="NSE symbol" />
+      <SymbolPicker value={sym} onChange={(v) => { setSym(v); setErr(null); }} className="w-full sm:w-48" />
       <Segmented options={[{ key: "shares", label: "Shares" }, { key: "amount", label: "Amount ₹" }]} value={mode}
         onChange={(m) => { setMode(m); setErr(null); }} />
       <input value={val} onChange={(e) => setVal(e.target.value)} type="number" min="0" step={mode === "shares" ? "1" : "100"}
@@ -130,7 +129,7 @@ export default function PortfolioPage() {
         {adding && (
           <Panel>
             <AddHolding onDone={added} />
-            <p className="mt-2 text-[12px] text-faint">Any NSE symbol. Enter the number of shares, or an amount in ₹: FINN converts it to whole shares at the last end-of-day close. Prices, filings and news start updating right away.</p>
+            <p className="mt-2 text-[12px] text-faint">Type part of a company name or symbol and pick it from the list. Enter the number of shares, or an amount in ₹: FINN converts it to whole shares at the last end-of-day close. Prices, filings and news start updating right away.</p>
           </Panel>
         )}
         {note && (
