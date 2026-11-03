@@ -6,7 +6,7 @@ import { useState } from "react";
 import { RangeChart } from "@/components/charts";
 import { FeedRow, FeedSkeleton, RoutineGroup } from "@/components/feed";
 import { NewsPanel } from "@/components/news";
-import { CompanySearch, useUserName } from "@/components/shell";
+import { CompanySearch, Logo, useUserName } from "@/components/shell";
 import { Chips, Delta, Empty, ErrorBox, Panel, Skeleton, Sparkline } from "@/components/ui";
 import { post, useApi, type Feed, type Portfolio, type Status } from "@/lib/api";
 import { ago, dateShort, FILTERS, greeting, inr, price } from "@/lib/format";
@@ -73,9 +73,9 @@ export default function Home() {
       {/* Dark hero band: greeting, search, the four numbers that frame the day */}
       <section className="bg-ink px-4 pt-5 pb-5 text-ink-text sm:px-6 lg:px-8 lg:pt-8 lg:pb-8">
         <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="mb-4 flex items-center justify-between lg:hidden">
-              <span className="text-[16px] font-semibold tracking-[-0.02em]">FINN</span>
+              <Link href="/" className="text-[16px]"><Logo /></Link>
               <Link href="/alerts" className="relative rounded-md p-1.5 text-ink-muted" aria-label="Alerts">
                 <Bell className="size-5" />
                 {(alerts?.unseen ?? 0) > 0 && <span className="absolute right-1 top-1 size-2 rounded-full bg-accent" />}

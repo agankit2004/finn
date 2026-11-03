@@ -133,7 +133,7 @@ export function CompanySearch({ dark, autoFocus, className, placeholder }: { dar
 }
 
 // ---- shell -----------------------------------------------------------------------------------------
-function Logo({ className }: { className?: string }) {
+export function Logo({ className }: { className?: string }) {
   return (
     <span className={clsx("flex items-center gap-2 font-semibold tracking-[-0.02em]", className)}>
       <svg viewBox="0 0 24 24" className="size-[22px]" aria-hidden>
