@@ -30,6 +30,13 @@ SOURCES:
 _FIN_Q = re.compile(r"revenue|sales|profit|pat|ebitda|margin|growth|trend|financial|earnings|numbers|quarter|year", re.I)
 
 
+_NOT_FOUND = re.compile(r"\b(do(es)?n['’]?t|do(es)? not|did not|never)\b.{0,40}\b(contain|mention|cover|answer|include|say|provide|discuss)"
+                        r"|\bnot (found|available|mentioned|covered|stated|disclosed)\b|\bno (information|mention|details?)\b", re.I)
+
+_DEFAULT_FOLLOW_UPS = ["How has revenue grown over the last few quarters?",
+                       "What did management guide for this year?",
+                       "What are the key risks in the annual report?"]
+
 _GREETING = re.compile(r"^(hi+|hello|hey|yo|hii+|thanks|thank you|ok|okay|test)[\s!.?]*$", re.I)
 
 
@@ -39,9 +46,13 @@ def _hint(company: Company) -> dict:
                                 "concall transcripts and annual report, with page references.",
                         "cites": [], "verified": True, "reason": "hint"}],
             "takeaways": [], "citations": {}, "table": None,
-            "follow_ups": ["How has revenue grown over the last few quarters?",
-                           "What did management guide for this year?",
-                           "What are the key risks in the annual report?"]}
+            "follow_ups": _DEFAULT_FOLLOW_UPS}
+
+
+def _is_not_found(answer: list[dict]) -> bool:
+    """The model's plain "the sources don't say" reply: no citations, no numbers, says nothing is there."""
+    return bool(answer) and all(not a["cites"] and not re.search(r"\d", a["text"]) and _NOT_FOUND.search(a["text"])
+                                for a in answer)
 
 
 def ask(s, company: Company, question: str) -> dict:
@@ -69,6 +80,14 @@ def ask(s, company: Company, question: str) -> dict:
                                           sources="\n".join(f"{k}: {v}" for k, v in sources.items())),
                         tier="smart", version="ask-v1", temperature=0.2)
     answer = grounding.check_items(out.get("answer"), sources)
+    if _is_not_found(answer):
+        # Saying the documents don't cover it is the honest answer, not an unverified claim. The model's
+        # follow-ups would rephrase the same question, so suggest ones the documents can answer.
+        name = company.name
+        return {"answer": [{"text": f"{name}'s filings, concall transcripts and annual report that FINN has read "
+                                    "don't answer this, so FINN won't guess. It only answers from these documents.",
+                            "cites": [], "verified": True, "reason": "not in sources"}],
+                "takeaways": [], "citations": {}, "table": None, "follow_ups": _DEFAULT_FOLLOW_UPS}
     used = {c for a in answer for c in a["cites"]}
     titles = metrics.doc_titles(s, {cites[c]["doc_id"] for c in used if cites[c].get("doc_id")})
     for c in used:

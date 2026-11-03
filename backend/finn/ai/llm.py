@@ -22,7 +22,7 @@ import time
 import httpx
 
 from .. import config
-from ..db import LlmCache, LlmCall, session_scope
+from ..db import LlmCache, LlmCall, get_setting, session_scope, set_setting
 
 log = logging.getLogger("finn.llm")
 
@@ -30,7 +30,7 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _MIN_INTERVAL = float(os.getenv("FINN_LLM_MIN_INTERVAL", "4.5"))  # free-tier friendly pacing
 _lock = threading.Lock()
-_last = 0.0
+_last: dict[str, float] = {}  # model -> monotonic time of its last paced call (free-tier limits are per model)
 _dead_models: set[str] = set()
 _quota_until: dict[str, float] = {}  # model -> time.time() when its daily free quota resets
 
@@ -51,13 +51,42 @@ class LlmUnavailable(RuntimeError):
     pass
 
 
-def _pace() -> None:
-    global _last
+def _pace(model: str) -> None:
     with _lock:
-        wait = _last + _MIN_INTERVAL - time.monotonic()
-        _last = max(time.monotonic(), _last + _MIN_INTERVAL)
+        last = _last.get(model, -_MIN_INTERVAL)
+        wait = last + _MIN_INTERVAL - time.monotonic()
+        _last[model] = max(time.monotonic(), last + _MIN_INTERVAL)
     if wait > 0:
         time.sleep(wait)
+
+
+_QUOTA_KEY = "llm_quota_until"
+_quota_loaded = False
+
+
+def _load_quota() -> None:
+    """Restore used-up daily quotas, so a server that slept and restarted doesn't retry those models first."""
+    global _quota_loaded
+    if _quota_loaded:
+        return
+    _quota_loaded = True
+    try:
+        with session_scope() as s:
+            saved = get_setting(s, _QUOTA_KEY, {}) or {}
+        now = time.time()
+        _quota_until.update({m: float(t) for m, t in saved.items() if float(t) > now})
+    except Exception:
+        log.exception("could not load saved model quotas")
+
+
+def _save_quota(model: str, until: float) -> None:
+    _quota_until[model] = until
+    try:
+        with session_scope() as s:
+            now = time.time()
+            set_setting(s, _QUOTA_KEY, {m: t for m, t in _quota_until.items() if t > now})
+    except Exception:
+        log.exception("could not save model quotas")
 
 
 def _parse_json(text: str):
@@ -73,6 +102,7 @@ def _parse_json(text: str):
 
 
 def _models_for(tier: str) -> list[str]:
+    _load_quota()
     first = config.GEMINI_SMART_MODEL if tier == "smart" else config.GEMINI_FAST_MODEL
     seq = [first] + [m for m in config.GEMINI_FALLBACK_MODELS if m != first]
     now = time.time()
@@ -172,7 +202,7 @@ def generate_json(
     if config.GEMINI_API_KEY:
         for model in _models_for(tier):
             for attempt in range(3):
-                _pace()
+                _pace(model)
                 try:
                     text, usage = _gemini(model, system, prompt, pdf, temperature)
                     result = _parse_json(text)
@@ -186,7 +216,7 @@ def generate_json(
                     errors.append(f"{model}: not found")
                     break
                 except QuotaExhausted as e:
-                    _quota_until[model] = time.time() + e.retry_seconds
+                    _save_quota(model, time.time() + e.retry_seconds)
                     errors.append(f"{model}: {e}")
                     break
                 except ModelBusy:  # one quick retry, then move on to the next model
